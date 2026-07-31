@@ -1,0 +1,31 @@
+# Environnements virtuels
+venv/
+env/
+ENV/
+
+# Fichiers Python compilés
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Secrets et configuration locale
+.env
+.env.*
+!.env.example
+
+# Base de données locale
+db.sqlite3
+db.sqlite3-journal
+
+# Logs
+*.log
+
+# Fichiers statiques collectés
+staticfiles/
+
+# VS Code
+.vscode/
+
+# Fichiers système
+.DS_Store
+Thumbs.db
