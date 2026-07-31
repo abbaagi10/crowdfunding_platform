@@ -4,6 +4,7 @@ Django settings for config project.
 
 from pathlib import Path
 from decouple import config
+from datetime import timedelta
 
 # BASE_DIR remonte de 3 niveaux car base.py est dans config/settings/
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -29,8 +30,55 @@ INSTALLED_APPS = [
 
     # Third-party apps
     'rest_framework',
+    'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
+
+    #Local Apps
     'apps.accounts',
 ]
+
+# Configuration de Django REST Framework
+REST_FRAMEWORK = {
+    # Toutes les vues sont authentifiées par JWT par défaut
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+    # Par défaut, une requête doit être authentifiée (sécurité par défaut, on ouvrira au cas par cas)
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+    ),
+}
+
+# Configuration des tokens JWT (durées, rotation, sécurité)
+SIMPLE_JWT = {
+    # Durée de vie de l'access token, lue depuis .env (JWT_ACCESS_MINUTES=10)
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=config('JWT_ACCESS_MINUTES', default=10, cast=int)),
+
+    # Durée de vie du refresh token, lue depuis .env (JWT_REFRESH_DAYS=5)
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=config('JWT_REFRESH_DAYS', default=5, cast=int)),
+
+    # Génère un nouveau refresh token à chaque rafraîchissement (sécurité renforcée)
+    'ROTATE_REFRESH_TOKENS': True,
+
+    # Ajoute l'ancien refresh token à la blacklist après rotation
+    'BLACKLIST_AFTER_ROTATION': True,
+
+    # Met à jour last_login de l'utilisateur à chaque connexion
+    'UPDATE_LAST_LOGIN': True,
+
+    # Algorithme de signature du token
+    'ALGORITHM': 'HS256',
+
+    # Clé secrète utilisée pour signer les tokens (différente de SECRET_KEY Django)
+    'SIGNING_KEY': config('JWT_SECRET_KEY'),
+
+    # Type d'en-tête HTTP attendu : "Authorization: Bearer <token>"
+    'AUTH_HEADER_TYPES': ('Bearer',),
+
+    # Champ utilisé comme identifiant dans le payload du token
+    'USER_ID_FIELD': 'id',
+    'USER_ID_CLAIM': 'user_id',
+}
 
 AUTH_USER_MODEL = 'accounts.CustomUser'
 MIDDLEWARE = [
