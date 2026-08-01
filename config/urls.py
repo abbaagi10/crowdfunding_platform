@@ -23,6 +23,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/v1/accounts/', include('apps.accounts.urls')),
     path('api/v1/investors/', include('apps.investors.urls')),
+    path('api/v1/companies/', include('apps.companies.urls')),
 ]
 
 # En développement uniquement : sert les fichiers uploadés (MEDIA_ROOT) via Django lui-même.

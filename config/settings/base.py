@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     #Local Apps
     'apps.accounts',
     'apps.investors',
+    'apps.companies',
 ]
 
 # Configuration de Django REST Framework
