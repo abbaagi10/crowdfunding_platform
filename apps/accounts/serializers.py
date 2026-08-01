@@ -3,6 +3,9 @@ from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.exceptions import AuthenticationFailed
+from django.contrib.auth.tokens import PasswordResetTokenGenerator
+from django.utils.encoding import force_bytes, force_str
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 
 # get_user_model() retourne le CustomUser configuré dans AUTH_USER_MODEL
 # C'est la manière RECOMMANDÉE d'accéder au modèle User dans du code réutilisable
@@ -91,3 +94,42 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             )
 
         return data        
+
+
+# Instance réutilisable du générateur de token natif de Django pour le reset de mot de passe
+password_reset_token = PasswordResetTokenGenerator()
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    """
+    Valide simplement la présence d'un email dans la requête.
+    Ne vérifie PAS si l'email existe (fait exprès, pour la sécurité).
+    """
+    email = serializers.EmailField()
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    """
+    Valide le uid, le token et le nouveau mot de passe lors de la confirmation.
+    """
+    uid = serializers.CharField()
+    token = serializers.CharField()
+    new_password = serializers.CharField(write_only=True, validators=[validate_password])
+    new_password2 = serializers.CharField(write_only=True)
+
+    def validate(self, attrs):
+        if attrs['new_password'] != attrs['new_password2']:
+            raise serializers.ValidationError({"new_password": "Les deux mots de passe ne correspondent pas."})
+
+        try:
+            uid = force_str(urlsafe_base64_decode(attrs['uid']))
+            user = User.objects.get(pk=uid)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            raise serializers.ValidationError({"uid": "Lien de réinitialisation invalide."})
+
+        if not password_reset_token.check_token(user, attrs['token']):
+            raise serializers.ValidationError({"token": "Lien de réinitialisation invalide ou expiré."})
+
+        # On stocke l'utilisateur trouvé pour l'utiliser directement dans la vue,
+        # évite de re-décoder le uid une deuxième fois
+        attrs['user'] = user
+        return attrs    

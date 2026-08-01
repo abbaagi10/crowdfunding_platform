@@ -13,6 +13,15 @@ from rest_framework_simplejwt.views import TokenObtainPairView as BaseTokenObtai
 
 from .serializers import RegisterSerializer, UserSerializer, CustomTokenObtainPairSerializer
 from .tokens import account_activation_token
+from django.core.mail import send_mail
+from django.conf import settings
+from .serializers import (
+    PasswordResetRequestSerializer,
+    PasswordResetConfirmSerializer,
+    password_reset_token,
+)
+from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_encode
 
 User = get_user_model()
 
@@ -142,3 +151,73 @@ class ActivateAccountView(APIView):
             {"detail": "Lien d'activation invalide ou expiré."},
             status=status.HTTP_400_BAD_REQUEST
         )
+
+
+class PasswordResetRequestView(APIView):
+    """
+    Endpoint de demande de réinitialisation (POST /api/v1/accounts/password-reset/).
+    Envoie un email contenant un lien de réinitialisation SI l'email existe.
+    """
+    permission_classes = (AllowAny,)
+
+    def post(self, request):
+        serializer = PasswordResetRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email']
+
+        try:
+            user = User.objects.get(email=email)
+
+            uid = urlsafe_base64_encode(force_bytes(user.pk))
+            token = password_reset_token.make_token(user)
+            reset_link = f"{settings.FRONTEND_URL}/reset-password/{uid}/{token}/"
+
+            send_mail(
+                subject="Réinitialisation de votre mot de passe",
+                message=(
+                    f"Bonjour {user.first_name or user.email},\n\n"
+                    f"Vous avez demandé la réinitialisation de votre mot de passe.\n"
+                    f"Cliquez sur ce lien pour en définir un nouveau :\n\n"
+                    f"{reset_link}\n\n"
+                    f"Si vous n'êtes pas à l'origine de cette demande, ignorez cet email.\n\n"
+                    f"L'équipe Crowdfunding Platform"
+                ),
+                from_email='noreply@crowdfunding.com',
+                recipient_list=[user.email],
+                fail_silently=False,
+            )
+        except User.DoesNotExist:
+            # IMPORTANT : on ne fait RIEN de spécial ici, volontairement.
+            # On ne doit jamais révéler si un email existe ou non dans le système.
+            pass
+
+        # Réponse IDENTIQUE que l'email existe ou non (sécurité)
+        return Response(
+            {"detail": "Si un compte existe avec cet email, un lien de réinitialisation a été envoyé."},
+            status=status.HTTP_200_OK
+        )
+
+
+class PasswordResetConfirmView(APIView):
+    """
+    Endpoint de confirmation (POST /api/v1/accounts/password-reset/confirm/).
+    Définit le nouveau mot de passe si le token est valide.
+    """
+    permission_classes = (AllowAny,)
+
+    def post(self, request):
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user = serializer.validated_data['user']
+        new_password = serializer.validated_data['new_password']
+
+        # set_password hash automatiquement le mot de passe avant de le stocker
+        user.set_password(new_password)
+        user.save()
+
+        return Response(
+            {"detail": "Mot de passe réinitialisé avec succès."},
+            status=status.HTTP_200_OK
+        )
+    
