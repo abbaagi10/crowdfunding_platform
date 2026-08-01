@@ -1,6 +1,8 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework_simplejwt.exceptions import AuthenticationFailed
 
 # get_user_model() retourne le CustomUser configuré dans AUTH_USER_MODEL
 # C'est la manière RECOMMANDÉE d'accéder au modèle User dans du code réutilisable
@@ -63,3 +65,29 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = ('id', 'email', 'first_name', 'last_name', 'role', 'is_email_verified', 'created_at')
         read_only_fields = ('id', 'created_at')
+
+
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework_simplejwt.exceptions import AuthenticationFailed
+
+
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    """
+    Surcharge du serializer de connexion JWT standard.
+    Ajoute une vérification supplémentaire : le compte doit être activé (email vérifié)
+    avant de pouvoir se connecter.
+    """
+
+    def validate(self, attrs):
+        # La méthode parente vérifie déjà email + mot de passe,
+        # et lève une erreur 401 automatiquement si invalides
+        data = super().validate(attrs)
+
+        # self.user est défini par la classe parente après validation réussie des identifiants
+        if not self.user.is_email_verified:
+            raise AuthenticationFailed(
+                "Veuillez activer votre compte via le lien envoyé par email avant de vous connecter.",
+                code="email_not_verified"
+            )
+
+        return data        

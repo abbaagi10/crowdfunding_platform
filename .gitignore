@@ -28,4 +28,4 @@ staticfiles/
 
 # Fichiers système
 .DS_Store
-Thumbs.db
+Thumbs.dbgit log --oneline
