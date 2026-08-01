@@ -35,6 +35,7 @@ INSTALLED_APPS = [
 
     #Local Apps
     'apps.accounts',
+    'apps.investors',
 ]
 
 # Configuration de Django REST Framework
@@ -148,3 +149,7 @@ STATIC_URL = 'static/'
 
 # Type de clé primaire par défaut pour tous les modèles
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Configuration des fichiers uploadés par les utilisateurs (photos, documents KYC)
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
