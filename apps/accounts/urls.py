@@ -5,6 +5,11 @@ from .views import (
     RegisterView, LogoutView, MeView, ActivateAccountView,
     CustomTokenObtainPairView, PasswordResetRequestView, PasswordResetConfirmView,
 )
+from .views import (
+    RegisterView, LogoutView, MeView, ActivateAccountView,
+    CustomTokenObtainPairView, PasswordResetRequestView, PasswordResetConfirmView,
+    UserListView,
+)
 
 app_name = 'accounts'
 
@@ -19,4 +24,5 @@ urlpatterns = [
     # Réinitialisation de mot de passe
     path('password-reset/', PasswordResetRequestView.as_view(), name='password_reset_request'),
     path('password-reset/confirm/', PasswordResetConfirmView.as_view(), name='password_reset_confirm'),
+    path('users/', UserListView.as_view(), name='user_list'),
 ]
