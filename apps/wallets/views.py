@@ -1,8 +1,8 @@
 ﻿from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.views import APIView
 
+from apps.accounts.permissions import IsAdminOrSuperAdmin
 from .models import Wallet
 from .serializers import WalletSerializer, WalletHistorySerializer
 
@@ -18,8 +18,6 @@ class MyWalletView(generics.RetrieveAPIView):
     def get(self, request, *args, **kwargs):
         wallet = Wallet.objects.filter(user=request.user).first()
         if wallet is None:
-            # Cas normal pour un SUPERADMIN/USERADMIN : pas d'erreur serveur,
-            # juste un message clair indiquant qu'il n'a pas de portefeuille.
             return Response(
                 {"detail": "Aucun portefeuille associé à ce compte (réservé aux investisseurs et entreprises)."},
                 status=status.HTTP_404_NOT_FOUND
@@ -39,5 +37,43 @@ class MyWalletHistoryView(generics.ListAPIView):
     def get_queryset(self):
         wallet = Wallet.objects.filter(user=self.request.user).first()
         if wallet is None:
-            return WalletHistorySerializer.Meta.model.objects.none()
+            return Wallet.objects.none()
         return wallet.history.all()
+
+
+class WalletListView(generics.ListAPIView):
+    """
+    Endpoint GET /api/v1/wallets/wallets/
+    Reserve a l'administration : liste TOUS les portefeuilles, pour l'audit.
+    STRICTEMENT en lecture -- aucune methode d'ecriture n'est exposee ici,
+    volontairement (voir justification dans la documentation de l'etape).
+    """
+    queryset = Wallet.objects.all().select_related('user').order_by('-updated_at')
+    serializer_class = WalletSerializer
+    permission_classes = (IsAdminOrSuperAdmin,)
+
+
+class WalletDetailView(generics.RetrieveAPIView):
+    """
+    Endpoint GET /api/v1/wallets/wallets/<id>/
+    Reserve a l'administration : consultation d'UN portefeuille precis.
+    RetrieveAPIView expose UNIQUEMENT le GET -- aucun risque de modification
+    accidentelle via cette vue (pas de mixin update/destroy).
+    """
+    queryset = Wallet.objects.all().select_related('user')
+    serializer_class = WalletSerializer
+    permission_classes = (IsAdminOrSuperAdmin,)
+
+
+class WalletHistoryDetailView(generics.ListAPIView):
+    """
+    Endpoint GET /api/v1/wallets/wallets/<id>/history/
+    Reserve a l'administration : historique complet d'UN portefeuille precis,
+    pour l'audit d'un utilisateur en particulier (ex: en cas de litige).
+    """
+    serializer_class = WalletHistorySerializer
+    permission_classes = (IsAdminOrSuperAdmin,)
+
+    def get_queryset(self):
+        wallet_id = self.kwargs['pk']
+        return Wallet.objects.filter(pk=wallet_id).first().history.all() if Wallet.objects.filter(pk=wallet_id).exists() else Wallet.objects.none()
