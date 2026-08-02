@@ -1,9 +1,10 @@
 ﻿from decimal import Decimal
-from datetime import date, timedelta
+from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
+from django.utils import timezone
 
 from apps.companies.models import CompanyProfile
 from apps.projects.models import Category, Project
@@ -13,7 +14,7 @@ User = get_user_model()
 
 class ProjectModelTests(TestCase):
     """
-    Tests unitaires du modèle Project.
+    Tests unitaires du modele Project.
     """
 
     def setUp(self):
@@ -26,6 +27,11 @@ class ProjectModelTests(TestCase):
         self.category = Category.objects.create(name="Sante")
 
     def _make_project(self, **overrides):
+        # timezone.now().date() -- COHERENT avec Project.is_open_for_investment,
+        # qui utilise timezone.now() (UTC) et non date.today() (heure locale).
+        # Utiliser une reference differente causerait un decalage pres de minuit
+        # si le fuseau horaire local differe d'UTC.
+        today = timezone.now().date()
         defaults = {
             'company': self.company,
             'category': self.category,
@@ -33,8 +39,8 @@ class ProjectModelTests(TestCase):
             'short_description': "Description courte",
             'full_description': "Description complete",
             'funding_goal': Decimal('10000.00'),
-            'start_date': date.today(),
-            'end_date': date.today() + timedelta(days=60),
+            'start_date': today,
+            'end_date': today + timedelta(days=60),
         }
         defaults.update(overrides)
         return Project(**defaults)
@@ -57,9 +63,10 @@ class ProjectModelTests(TestCase):
         self.assertNotEqual(project1.slug, project2.slug)
 
     def test_end_date_before_start_date_raises_validation_error(self):
+        today = timezone.now().date()
         project = self._make_project(
-            start_date=date.today(),
-            end_date=date.today() - timedelta(days=1)
+            start_date=today,
+            end_date=today - timedelta(days=1)
         )
         with self.assertRaises(ValidationError):
             project.clean()
@@ -77,8 +84,9 @@ class ProjectModelTests(TestCase):
         self.assertEqual(project.funding_percentage, Decimal('25.00'))
 
     def test_is_open_for_investment_true_when_active_and_not_expired(self):
+        today = timezone.now().date()
         project = self._make_project(
-            end_date=date.today() + timedelta(days=30)
+            end_date=today + timedelta(days=30)
         )
         project.status = Project.Status.ACTIVE
         project.save()
@@ -90,16 +98,16 @@ class ProjectModelTests(TestCase):
         self.assertFalse(project.is_open_for_investment)
 
     def test_is_open_for_investment_false_when_expired(self):
+        today = timezone.now().date()
         project = self._make_project(
-            start_date=date.today() - timedelta(days=100),
-            end_date=date.today() - timedelta(days=1)
+            start_date=today - timedelta(days=100),
+            end_date=today - timedelta(days=1)
         )
         project.status = Project.Status.ACTIVE
         project.save()
         self.assertFalse(project.is_open_for_investment)
 
     def test_category_cannot_be_deleted_if_used_by_project(self):
-        """on_delete=PROTECT doit empecher la suppression d'une categorie utilisee."""
         project = self._make_project()
         project.save()
 

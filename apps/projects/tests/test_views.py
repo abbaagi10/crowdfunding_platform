@@ -1,5 +1,6 @@
 ﻿from decimal import Decimal
-from datetime import date, timedelta
+from datetime import timedelta
+from django.utils import timezone
 
 from django.contrib.auth import get_user_model
 from django.urls import reverse
@@ -47,7 +48,7 @@ class ProjectListCreateViewTests(APITestCase):
             company=self.company, category=self.category, title="Draft Project",
             short_description="desc", full_description="desc complete",
             funding_goal=Decimal('5000.00'),
-            start_date=date.today(), end_date=date.today() + timedelta(days=30),
+            start_date=timezone.now().date(), end_date=timezone.now().date() + timedelta(days=30),
         )
 
         # Un projet ACTIVE (public) pour other_company
@@ -55,7 +56,7 @@ class ProjectListCreateViewTests(APITestCase):
             company=self.other_company, category=self.category, title="Active Project",
             short_description="desc", full_description="desc complete",
             funding_goal=Decimal('5000.00'),
-            start_date=date.today(), end_date=date.today() + timedelta(days=30),
+            start_date=timezone.now().date(), end_date=timezone.now().date() + timedelta(days=30),
             status=Project.Status.ACTIVE,
         )
 
@@ -89,8 +90,8 @@ class ProjectListCreateViewTests(APITestCase):
             "short_description": "desc",
             "full_description": "desc complete",
             "funding_goal": "1000.00",
-            "start_date": str(date.today()),
-            "end_date": str(date.today() + timedelta(days=30)),
+            "start_date": str(timezone.now().date()),
+            "end_date": str(timezone.now().date() + timedelta(days=30)),
         }, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -102,8 +103,8 @@ class ProjectListCreateViewTests(APITestCase):
             "short_description": "desc",
             "full_description": "desc complete",
             "funding_goal": "2000.00",
-            "start_date": str(date.today()),
-            "end_date": str(date.today() + timedelta(days=30)),
+            "start_date": str(timezone.now().date()),
+            "end_date": str(timezone.now().date() + timedelta(days=30)),
         }, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data['status'], Project.Status.DRAFT)
@@ -119,8 +120,8 @@ class ProjectListCreateViewTests(APITestCase):
             "short_description": "desc",
             "full_description": "desc complete",
             "funding_goal": "2000.00",
-            "start_date": str(date.today()),
-            "end_date": str(date.today() + timedelta(days=30)),
+            "start_date": str(timezone.now().date()),
+            "end_date": str(timezone.now().date() + timedelta(days=30)),
         }, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         # Le projet doit appartenir a l'entreprise CONNECTEE, pas celle forcee dans le payload
@@ -157,7 +158,7 @@ class ProjectDetailViewTests(APITestCase):
             company=self.owner_company, category=self.category, title="Projet Detail",
             short_description="desc", full_description="desc complete",
             funding_goal=Decimal('3000.00'),
-            start_date=date.today(), end_date=date.today() + timedelta(days=30),
+            start_date=timezone.now().date(), end_date=timezone.now().date() + timedelta(days=30),
         )
         self.detail_url = reverse('projects:project_detail', kwargs={'pk': self.project.pk})
 
@@ -205,7 +206,7 @@ class ProjectSubmitForReviewViewTests(APITestCase):
             company=self.owner_company, category=self.category, title="Projet Submit",
             short_description="desc", full_description="desc complete",
             funding_goal=Decimal('3000.00'),
-            start_date=date.today(), end_date=date.today() + timedelta(days=30),
+            start_date=timezone.now().date(), end_date=timezone.now().date() + timedelta(days=30),
         )
         self.submit_url = reverse('projects:project_submit', kwargs={'pk': self.project.pk})
 
@@ -252,7 +253,7 @@ class ProjectModerationViewTests(APITestCase):
             company=self.owner_company, category=self.category, title="Projet Moderate",
             short_description="desc", full_description="desc complete",
             funding_goal=Decimal('3000.00'),
-            start_date=date.today(), end_date=date.today() + timedelta(days=30),
+            start_date=timezone.now().date(), end_date=timezone.now().date() + timedelta(days=30),
             status=Project.Status.PENDING,
         )
         self.moderate_url = reverse('projects:project_moderate', kwargs={'pk': self.project.pk})
@@ -293,3 +294,4 @@ class ProjectModerationViewTests(APITestCase):
         self.client.force_authenticate(user=self.superadmin)
         response = self.client.patch(self.moderate_url, {"status": "DRAFT"}, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
