@@ -7,6 +7,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from apps.companies.models import CompanyProfile
+from apps.investors.models import InvestorProfile
 from apps.projects.models import Category, Project
 from apps.wallets.models import Wallet
 from apps.transactions.models import Transaction
@@ -16,10 +17,6 @@ User = get_user_model()
 
 
 class DepositViewTests(APITestCase):
-    """
-    Tests de l'endpoint /transactions/deposit/.
-    """
-
     def setUp(self):
         self.deposit_url = reverse('transactions:deposit')
         self.investor = User.objects.create_user(
@@ -34,7 +31,6 @@ class DepositViewTests(APITestCase):
     def test_authenticated_investor_can_deposit(self):
         self.client.force_authenticate(user=self.investor)
         response = self.client.post(self.deposit_url, {"amount": "100.00"}, format='json')
-
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data['status'], Transaction.Status.COMPLETED)
         self.assertEqual(response.data['transaction_type'], Transaction.TransactionType.DEPOSIT)
@@ -60,10 +56,6 @@ class DepositViewTests(APITestCase):
 
 
 class WithdrawViewTests(APITestCase):
-    """
-    Tests de l'endpoint /transactions/withdraw/.
-    """
-
     def setUp(self):
         self.withdraw_url = reverse('transactions:withdraw')
         self.investor = User.objects.create_user(
@@ -76,21 +68,18 @@ class WithdrawViewTests(APITestCase):
     def test_withdraw_within_balance_succeeds(self):
         self.client.force_authenticate(user=self.investor)
         response = self.client.post(self.withdraw_url, {"amount": "50.00"}, format='json')
-
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data['transaction_type'], Transaction.TransactionType.WITHDRAWAL)
 
     def test_withdraw_exceeding_balance_returns_400(self):
         self.client.force_authenticate(user=self.investor)
         response = self.client.post(self.withdraw_url, {"amount": "9999.00"}, format='json')
-
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("insuffisant", response.data['detail'])
 
     def test_wallet_balance_unchanged_after_failed_withdraw(self):
         self.client.force_authenticate(user=self.investor)
         self.client.post(self.withdraw_url, {"amount": "9999.00"}, format='json')
-
         self.wallet.refresh_from_db()
         self.assertEqual(self.wallet.balance, Decimal('200.00'))
 
@@ -107,6 +96,9 @@ class InvestViewTests(APITestCase):
             email="tv_investor@example.com", password="Pass123!",
             role=User.Role.INVESTISSEUR, is_email_verified=True
         )
+        # InvestorProfile requis depuis que Investment est cree par TransactionService.invest()
+        self.investor_profile = InvestorProfile.objects.create(user=self.investor)
+
         self.wallet = Wallet.objects.get(user=self.investor)
         TransactionService.deposit(self.wallet, Decimal('1000.00'))
 
@@ -133,7 +125,6 @@ class InvestViewTests(APITestCase):
             "project_id": self.project.id,
             "amount": "100.00"
         }, format='json')
-
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data['project'], self.project.id)
 
@@ -143,7 +134,6 @@ class InvestViewTests(APITestCase):
             "project_id": 999999,
             "amount": "100.00"
         }, format='json')
-
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_invest_exceeding_goal_returns_400(self):
@@ -152,7 +142,6 @@ class InvestViewTests(APITestCase):
             "project_id": self.project.id,
             "amount": "600.00"
         }, format='json')
-
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_project_current_amount_unchanged_after_failed_investment(self):
@@ -161,16 +150,11 @@ class InvestViewTests(APITestCase):
             "project_id": self.project.id,
             "amount": "600.00"
         }, format='json')
-
         self.project.refresh_from_db()
         self.assertEqual(self.project.current_amount, Decimal('0.00'))
 
 
 class MyTransactionListViewTests(APITestCase):
-    """
-    Tests de l'endpoint /transactions/me/.
-    """
-
     def setUp(self):
         self.list_url = reverse('transactions:my_transactions')
         self.investor = User.objects.create_user(
@@ -190,20 +174,14 @@ class MyTransactionListViewTests(APITestCase):
     def test_user_sees_only_own_transactions(self):
         self.client.force_authenticate(user=self.investor)
         response = self.client.get(self.list_url)
-
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]['wallet_user_email'], "tv_mylist@example.com")
 
 
 class TransactionListViewTests(APITestCase):
-    """
-    Tests de l'endpoint /transactions/ : audit reserve a l'administration.
-    """
-
     def setUp(self):
         self.list_url = reverse('transactions:transaction_list')
-
         self.superadmin = User.objects.create_user(
             email="tv_audit_admin@example.com", password="Pass123!",
             role=User.Role.SUPERADMIN, is_email_verified=True

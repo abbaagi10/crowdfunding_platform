@@ -6,6 +6,7 @@ from django.core.exceptions import ValidationError
 from django.test import TestCase
 
 from apps.companies.models import CompanyProfile
+from apps.investors.models import InvestorProfile
 from apps.projects.models import Category, Project
 from apps.wallets.models import Wallet
 from apps.transactions.models import Transaction
@@ -15,10 +16,6 @@ User = get_user_model()
 
 
 class DepositServiceTests(TestCase):
-    """
-    Tests du service TransactionService.deposit().
-    """
-
     def setUp(self):
         self.user = User.objects.create_user(
             email="deposit_test@example.com", password="Pass123!",
@@ -28,7 +25,6 @@ class DepositServiceTests(TestCase):
 
     def test_deposit_creates_completed_transaction(self):
         txn = TransactionService.deposit(self.wallet, Decimal('100.00'), description="Test depot")
-
         self.assertEqual(txn.status, Transaction.Status.COMPLETED)
         self.assertEqual(txn.transaction_type, Transaction.TransactionType.DEPOSIT)
         self.assertEqual(txn.amount, Decimal('100.00'))
@@ -45,10 +41,6 @@ class DepositServiceTests(TestCase):
 
 
 class WithdrawServiceTests(TestCase):
-    """
-    Tests du service TransactionService.withdraw().
-    """
-
     def setUp(self):
         self.user = User.objects.create_user(
             email="withdraw_test@example.com", password="Pass123!",
@@ -69,18 +61,12 @@ class WithdrawServiceTests(TestCase):
         self.assertEqual(self.wallet.balance, Decimal('120.00'))
 
     def test_withdraw_more_than_available_raises_error_and_creates_no_transaction(self):
-        """
-        Point CRITIQUE : si le retrait echoue, AUCUNE transaction ne doit
-        rester en base (grace a l'atomicite) -- pas de trace fantome PENDING.
-        """
         initial_count = Transaction.objects.count()
-
         with self.assertRaises(InsufficientFundsError):
             TransactionService.withdraw(self.wallet, Decimal('500.00'))
-
         self.assertEqual(Transaction.objects.count(), initial_count)
         self.wallet.refresh_from_db()
-        self.assertEqual(self.wallet.balance, Decimal('200.00'))  # Inchange
+        self.assertEqual(self.wallet.balance, Decimal('200.00'))
 
 
 class InvestServiceTests(TestCase):
@@ -89,16 +75,18 @@ class InvestServiceTests(TestCase):
     """
 
     def setUp(self):
-        # Investisseur avec des fonds
+        # Investisseur avec des fonds ET un profil investisseur
+        # (Investment exige desormais un InvestorProfile -- voir services.py)
         self.investor_user = User.objects.create_user(
             email="invest_test@example.com", password="Pass123!",
             role=User.Role.INVESTISSEUR
         )
+        self.investor_profile = InvestorProfile.objects.create(user=self.investor_user)
+
         self.investor_wallet = Wallet.objects.get(user=self.investor_user)
         TransactionService.deposit(self.investor_wallet, Decimal('1000.00'))
         self.investor_wallet.refresh_from_db()
 
-        # Entreprise + projet ACTIVE
         self.company_user = User.objects.create_user(
             email="invest_company@example.com", password="Pass123!",
             role=User.Role.ENTREPRISE
@@ -126,7 +114,6 @@ class InvestServiceTests(TestCase):
 
     def test_invest_creates_completed_transaction_linked_to_project(self):
         txn = TransactionService.invest(self.investor_wallet, self.active_project, Decimal('100.00'))
-
         self.assertEqual(txn.status, Transaction.Status.COMPLETED)
         self.assertEqual(txn.transaction_type, Transaction.TransactionType.INVESTMENT)
         self.assertEqual(txn.project, self.active_project)
@@ -142,11 +129,8 @@ class InvestServiceTests(TestCase):
         self.assertEqual(self.active_project.current_amount, Decimal('150.00'))
 
     def test_invest_in_non_active_project_raises_error(self):
-        """On ne peut PAS investir dans un projet DRAFT (is_open_for_investment=False)."""
         with self.assertRaises(ValidationError):
             TransactionService.invest(self.investor_wallet, self.draft_project, Decimal('50.00'))
-
-        # Aucune transaction ne doit avoir ete creee
         self.assertFalse(
             Transaction.objects.filter(project=self.draft_project).exists()
         )
@@ -154,37 +138,24 @@ class InvestServiceTests(TestCase):
     def test_invest_more_than_available_balance_raises_error(self):
         with self.assertRaises(InsufficientFundsError):
             TransactionService.invest(self.investor_wallet, self.active_project, Decimal('5000.00'))
-
         self.investor_wallet.refresh_from_db()
-        self.assertEqual(self.investor_wallet.balance, Decimal('1000.00'))  # Inchange
+        self.assertEqual(self.investor_wallet.balance, Decimal('1000.00'))
 
     def test_invest_exceeding_funding_goal_raises_error(self):
-        """L'investissement ne doit jamais faire depasser current_amount au-dela de funding_goal."""
-        # funding_goal = 500.00 -- tenter d'investir 600.00 doit echouer
         with self.assertRaises(ValidationError):
             TransactionService.invest(self.investor_wallet, self.active_project, Decimal('600.00'))
-
         self.active_project.refresh_from_db()
-        self.assertEqual(self.active_project.current_amount, Decimal('0.00'))  # Inchange
+        self.assertEqual(self.active_project.current_amount, Decimal('0.00'))
 
     def test_multiple_investments_accumulate_correctly(self):
-        """Plusieurs investissements successifs doivent s'accumuler correctement sur le projet."""
         TransactionService.invest(self.investor_wallet, self.active_project, Decimal('100.00'))
         TransactionService.invest(self.investor_wallet, self.active_project, Decimal('200.00'))
-
         self.active_project.refresh_from_db()
         self.assertEqual(self.active_project.current_amount, Decimal('300.00'))
-
         self.investor_wallet.refresh_from_db()
         self.assertEqual(self.investor_wallet.balance, Decimal('700.00'))
 
     def test_failed_investment_leaves_no_partial_state(self):
-        """
-        Test le plus important de cette etape : verifie qu'un echec
-        (ici, depassement d'objectif) ne laisse AUCUNE trace partielle --
-        ni transaction, ni modification du wallet, ni modification du projet.
-        C'est la preuve concrete que l'atomicite fonctionne.
-        """
         initial_wallet_balance = self.investor_wallet.balance
         initial_project_amount = self.active_project.current_amount
         initial_transaction_count = Transaction.objects.count()
@@ -198,3 +169,28 @@ class InvestServiceTests(TestCase):
         self.assertEqual(self.investor_wallet.balance, initial_wallet_balance)
         self.assertEqual(self.active_project.current_amount, initial_project_amount)
         self.assertEqual(Transaction.objects.count(), initial_transaction_count)
+
+    def test_investment_record_created_with_correct_data(self):
+        """NOUVEAU : verifie qu'un Investment est bien cree en plus de la Transaction."""
+        from apps.investments.models import Investment
+
+        txn = TransactionService.invest(self.investor_wallet, self.active_project, Decimal('120.00'))
+
+        investment = Investment.objects.get(transaction=txn)
+        self.assertEqual(investment.investor_profile, self.investor_profile)
+        self.assertEqual(investment.project, self.active_project)
+        self.assertEqual(investment.amount, Decimal('120.00'))
+        self.assertEqual(investment.status, Investment.Status.ACTIVE)
+
+    def test_invest_without_investor_profile_raises_error(self):
+        """NOUVEAU : un utilisateur INVESTISSEUR sans InvestorProfile ne peut pas investir."""
+        user_no_profile = User.objects.create_user(
+            email="no_profile@example.com", password="Pass123!",
+            role=User.Role.INVESTISSEUR
+        )
+        wallet_no_profile = Wallet.objects.get(user=user_no_profile)
+        TransactionService.deposit(wallet_no_profile, Decimal('500.00'))
+        wallet_no_profile.refresh_from_db()
+
+        with self.assertRaises(ValidationError):
+            TransactionService.invest(wallet_no_profile, self.active_project, Decimal('50.00'))
