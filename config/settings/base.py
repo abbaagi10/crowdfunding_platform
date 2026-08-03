@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
 
     #Local Apps
+    'django_celery_results',
     'apps.accounts',
     'apps.investors',
     'apps.companies',
@@ -159,3 +160,21 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Configuration des fichiers uploadés par les utilisateurs (photos, documents KYC)
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# ============================================
+# Configuration Celery
+# ============================================
+
+# URL de connexion au broker Redis (lu depuis .env, cohérent avec le reste du projet)
+CELERY_BROKER_URL = config('CELERY_BROKER_URL', default='redis://localhost:6379/0')
+
+# Stocke les résultats des tâches dans la base Django (via django-celery-results)
+CELERY_RESULT_BACKEND = 'django-db'
+
+# Format de sérialisation des tâches (JSON, plus sûr qu'un format binaire comme pickle)
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+
+# Fuseau horaire cohérent avec le reste du projet (rappel Étape 6 : toujours UTC)
+CELERY_TIMEZONE = 'UTC'

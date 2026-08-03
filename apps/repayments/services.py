@@ -150,7 +150,7 @@ class RepaymentService:
         """
         Execute le paiement REEL d'une echeance :
         1. Debite le wallet de l'ENTREPRISE porteuse du projet
-        2. Credite le wallet de l'INVESTISSEUR (capital + interets)
+        2. Credite le wallet de l'INVESTISSEUR
         3. Trace deux Transactions cote investisseur (REFUND pour le capital,
            INTEREST pour les interets) -- le debit entreprise reste trace
            dans son WalletHistory via wallet.debit(), sans Transaction dediee
