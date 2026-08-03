@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     'apps.transactions',
     'apps.investments',
     'apps.repayments',
+    'apps.notifications', 
 ]
 
 # Configuration de Django REST Framework
