@@ -144,3 +144,91 @@ class RepaymentService:
                 )
 
         return plan
+    @staticmethod
+    @db_transaction.atomic
+    def pay_installment(repayment: Repayment) -> Repayment:
+        """
+        Execute le paiement REEL d'une echeance :
+        1. Debite le wallet de l'ENTREPRISE porteuse du projet
+        2. Credite le wallet de l'INVESTISSEUR (capital + interets)
+        3. Trace deux Transactions cote investisseur (REFUND pour le capital,
+           INTEREST pour les interets) -- le debit entreprise reste trace
+           dans son WalletHistory via wallet.debit(), sans Transaction dediee
+           (le wallet de l'entreprise n'est pas lie a un "investissement",
+           differencier ce mouvement necessiterait un type de Transaction
+           supplementaire, hors scope pour cette etape).
+        4. Met a jour Investment.amount_refunded et son statut
+        5. Marque l'echeance comme PAID
+        """
+        from apps.transactions.models import Transaction
+        from apps.wallets.models import Wallet
+
+        if repayment.status != Repayment.Status.SCHEDULED:
+            raise ValidationError(
+                f"Cette echeance a deja le statut '{repayment.get_status_display()}', "
+                f"impossible de la payer a nouveau."
+            )
+
+        investment = repayment.investment
+        investor_wallet = Wallet.objects.select_for_update().get(
+            user=investment.investor_profile.user
+        )
+        company_wallet = Wallet.objects.select_for_update().get(
+            user=repayment.plan.project.company.user
+        )
+
+        total_due = repayment.total_amount
+
+        if total_due > company_wallet.available_balance:
+            raise ValidationError(
+                f"Solde de l'entreprise insuffisant pour honorer cette echeance : "
+                f"{company_wallet.available_balance} disponible, {total_due} requis."
+            )
+
+        # 1. Debit du wallet entreprise (mouvement simple, trace dans WalletHistory)
+        company_wallet.debit(
+            total_due,
+            description=f"Remboursement echeance #{repayment.installment_number} - {investment.project.title}"
+        )
+
+        # 2 & 3. Credit investisseur + Transactions tracees, une par nature de montant
+        if repayment.capital_amount > 0:
+            refund_txn = Transaction.objects.create(
+                wallet=investor_wallet,
+                project=investment.project,
+                transaction_type=Transaction.TransactionType.REFUND,
+                amount=repayment.capital_amount,
+                status=Transaction.Status.PENDING,
+                description=f"Remboursement capital - echeance #{repayment.installment_number}",
+            )
+            investor_wallet.credit(repayment.capital_amount, description=f"Refund - {refund_txn.reference}")
+            refund_txn.status = Transaction.Status.COMPLETED
+            refund_txn.save()
+
+        if repayment.interest_amount > 0:
+            interest_txn = Transaction.objects.create(
+                wallet=investor_wallet,
+                project=investment.project,
+                transaction_type=Transaction.TransactionType.INTEREST,
+                amount=repayment.interest_amount,
+                status=Transaction.Status.PENDING,
+                description=f"Interets - echeance #{repayment.installment_number}",
+            )
+            investor_wallet.credit(repayment.interest_amount, description=f"Interest - {interest_txn.reference}")
+            interest_txn.status = Transaction.Status.COMPLETED
+            interest_txn.save()
+
+        # 4. Mise a jour de la position d'investissement
+        investment.amount_refunded += repayment.capital_amount
+        if investment.amount_refunded >= investment.amount:
+            investment.status = Investment.Status.REFUNDED
+        else:
+            investment.status = Investment.Status.PARTIALLY_REFUNDED
+        investment.save()
+
+        # 5. Marque l'echeance comme payee
+        repayment.status = Repayment.Status.PAID
+        repayment.paid_at = timezone.now()
+        repayment.save()
+
+        return repayment
