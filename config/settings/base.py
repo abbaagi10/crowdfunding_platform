@@ -179,3 +179,8 @@ CELERY_RESULT_SERIALIZER = 'json'
 
 # Fuseau horaire cohérent avec le reste du projet (rappel Étape 6 : toujours UTC)
 CELERY_TIMEZONE = 'UTC'
+
+import sys
+if 'test' in sys.argv:
+    CELERY_TASK_ALWAYS_EAGER = True
+    CELERY_TASK_EAGER_PROPAGATES = True

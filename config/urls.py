@@ -29,6 +29,7 @@ urlpatterns = [
     path('api/v1/transactions/', include('apps.transactions.urls')),
     path('api/v1/investments/', include('apps.investments.urls')),
     path('api/v1/repayments/', include('apps.repayments.urls')),
+    path('api/v1/notifications/', include('apps.notifications.urls')),
 ]
 
 # En développement uniquement : sert les fichiers uploadés (MEDIA_ROOT) via Django lui-même.

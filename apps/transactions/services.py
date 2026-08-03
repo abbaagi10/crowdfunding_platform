@@ -1,8 +1,8 @@
 ﻿from decimal import Decimal
-
 from django.db import transaction as db_transaction
 from django.core.exceptions import ValidationError
-
+from apps.notifications.tasks import create_notification
+from apps.notifications.models import Notification
 from apps.wallets.models import Wallet
 from apps.projects.models import Project
 from apps.investments.models import Investment
@@ -124,4 +124,13 @@ class TransactionService:
 
         txn.status = Transaction.Status.COMPLETED
         txn.save()
+        # Notifie l'ENTREPRISE porteuse qu'elle a reçu un nouvel investissement.
+        # on_commit() garantit que la notification n'est envoyée QUE si toute
+        # la transaction financière (debit/credit/Investment) a bien été validée.
+        db_transaction.on_commit(lambda: create_notification.delay(
+            user_id=project.company.user.pk,
+            notification_type=Notification.NotificationType.INVESTMENT_RECEIVED,
+            title="Nouvel investissement reçu",
+            message=f"Vous avez reçu un investissement de {amount} sur le projet '{project.title}'.",
+        ))
         return txn

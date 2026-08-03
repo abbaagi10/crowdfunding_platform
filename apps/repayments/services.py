@@ -3,7 +3,8 @@
 from django.db import transaction as db_transaction
 from django.core.exceptions import ValidationError
 from django.utils import timezone
-
+from apps.notifications.tasks import create_notification
+from apps.notifications.models import Notification
 from apps.investments.models import Investment
 from apps.projects.models import Project
 from .models import RepaymentPlan, Repayment
@@ -230,5 +231,12 @@ class RepaymentService:
         repayment.status = Repayment.Status.PAID
         repayment.paid_at = timezone.now()
         repayment.save()
+        
+        db_transaction.on_commit(lambda: create_notification.delay(
+            user_id=investment.investor_profile.user.pk,
+            notification_type=Notification.NotificationType.REPAYMENT_PAID,
+            title="Échéance remboursée",
+            message=f"Vous avez reçu {repayment.total_amount} pour votre investissement dans '{investment.project.title}'.",
+        ))
 
         return repayment

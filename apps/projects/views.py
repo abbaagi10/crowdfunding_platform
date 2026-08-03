@@ -2,7 +2,9 @@
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
-
+from django.db import transaction as db_transaction
+from apps.notifications.tasks import create_notification
+from apps.notifications.models import Notification
 from apps.accounts.permissions import IsAdminOrSuperAdmin
 from .models import Category, Project
 from .permissions import IsProjectOwnerOrAdminOrReadOnly, IsEntrepriseRole
@@ -146,5 +148,18 @@ class ProjectModerationView(APIView):
             serializer.save(status=Project.Status.ACTIVE)
         else:
             serializer.save()
+            
+        notification_title = {
+            Project.Status.ACTIVE: "Projet approuvé",
+            Project.Status.REJECTED: "Projet refusé",
+            Project.Status.NEEDS_CORRECTION: "Corrections demandées",
+        }.get(project.status, "Mise à jour de votre projet")
+
+        db_transaction.on_commit(lambda: create_notification.delay(
+            user_id=project.company.user.pk,
+            notification_type=Notification.NotificationType.PROJECT_APPROVED if project.status == Project.Status.ACTIVE else Notification.NotificationType.PROJECT_REJECTED,
+            title=notification_title,
+            message=f"Le statut de votre projet '{project.title}' est maintenant : {project.get_status_display()}.",
+        ))    
 
         return Response(ProjectSerializer(project).data, status=status.HTTP_200_OK)
