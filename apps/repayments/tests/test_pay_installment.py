@@ -194,3 +194,113 @@ class PayInstallmentTests(TestCase):
             wallet=wallet2, transaction_type=Transaction.TransactionType.INTEREST
         ).exists()
         self.assertFalse(interest_txn_exists)
+class PlatformCommissionTests(TestCase):
+    """
+    Tests dedies au prelevement de la commission plateforme sur les interets.
+    """
+
+    def setUp(self):
+        # Cree le compte PLATFORM explicitement (normalement fait une fois
+        # en production via create_platform_account, absent par defaut en test).
+        self.platform_user = User.objects.create(
+            email="platform@crowdfunding.internal",
+            first_name="Plateforme", last_name="Crowdfunding",
+            role=User.Role.PLATFORM, is_email_verified=True,
+        )
+        self.platform_user.set_unusable_password()
+        self.platform_user.save()
+        self.platform_wallet = Wallet.objects.get(user=self.platform_user)
+
+        self.company_user = User.objects.create_user(
+            email="pc_company@example.com", password="Pass123!", role=User.Role.ENTREPRISE
+        )
+        self.company = CompanyProfile.objects.create(
+            user=self.company_user, company_name="PC SAS", registration_number="FR500600700"
+        )
+        self.company_wallet = Wallet.objects.get(user=self.company_user)
+        TransactionService.deposit(self.company_wallet, Decimal('100000.00'))
+        self.company_wallet.refresh_from_db()
+
+        self.category = Category.objects.create(name="PC Category")
+        self.project = Project.objects.create(
+            company=self.company, category=self.category, title="PC Project",
+            short_description="desc", full_description="desc complete",
+            funding_goal=Decimal('1000.00'),
+            start_date=timezone.now().date(), end_date=timezone.now().date() + timedelta(days=30),
+            status=Project.Status.ACTIVE,
+        )
+
+        self.investor_user = User.objects.create_user(
+            email="pc_investor@example.com", password="Pass123!", role=User.Role.INVESTISSEUR
+        )
+        InvestorProfile.objects.create(user=self.investor_user)
+        self.investor_wallet = Wallet.objects.get(user=self.investor_user)
+        TransactionService.deposit(self.investor_wallet, Decimal('1000.00'))
+        self.investor_wallet.refresh_from_db()
+
+        self.investment = TransactionService.invest(
+            self.investor_wallet, self.project, Decimal('1000.00')
+        ).investment
+        self.investor_wallet.refresh_from_db()
+        self.project.refresh_from_db()
+
+        self.plan = RepaymentService.generate_plan(
+            self.project, interest_rate=Decimal('12.00'), number_of_installments=12
+        )
+        self.first_repayment = Repayment.objects.get(investment=self.investment, installment_number=1)
+
+    def test_platform_wallet_credited_with_commission(self):
+        """La plateforme doit recevoir sa commission (10% par defaut sur les interets)."""
+        gross_interest = self.first_repayment.interest_amount
+
+        RepaymentService.pay_installment(self.first_repayment)
+
+        self.platform_wallet.refresh_from_db()
+        expected_commission = (gross_interest * Decimal('0.10')).quantize(Decimal('0.01'))
+        self.assertEqual(self.platform_wallet.balance, expected_commission)
+
+    def test_investor_receives_net_interest_after_commission(self):
+        """L'investisseur doit recevoir capital + interets NETS de commission."""
+        gross_interest = self.first_repayment.interest_amount
+        capital = self.first_repayment.capital_amount
+        expected_commission = (gross_interest * Decimal('0.10')).quantize(Decimal('0.01'))
+        expected_net_total = capital + (gross_interest - expected_commission)
+
+        initial_balance = self.investor_wallet.balance
+        RepaymentService.pay_installment(self.first_repayment)
+
+        self.investor_wallet.refresh_from_db()
+        self.assertEqual(self.investor_wallet.balance, initial_balance + expected_net_total)
+
+    def test_capital_is_never_reduced_by_commission(self):
+        """Le CAPITAL rembourse doit toujours etre integral -- seuls les interets sont taxes."""
+        capital_before = self.first_repayment.capital_amount
+
+        RepaymentService.pay_installment(self.first_repayment)
+
+        refund_txn = Transaction.objects.filter(
+            wallet=self.investor_wallet, transaction_type=Transaction.TransactionType.REFUND
+        ).first()
+        self.assertEqual(refund_txn.amount, capital_before)
+
+    def test_commission_transaction_created_with_correct_type(self):
+        RepaymentService.pay_installment(self.first_repayment)
+
+        commission_txn = Transaction.objects.filter(
+            wallet=self.platform_wallet, transaction_type=Transaction.TransactionType.COMMISSION
+        ).first()
+        self.assertIsNotNone(commission_txn)
+        self.assertEqual(commission_txn.status, Transaction.Status.COMPLETED)
+
+    def test_payment_succeeds_even_without_platform_account(self):
+        """
+        Si le compte PLATFORM n'existe pas (cas des autres tests de cette suite),
+        le paiement doit tout de meme reussir -- l'investisseur recoit alors
+        les interets BRUTS (pas de commission prelevee).
+        """
+        self.platform_user.delete()
+
+        RepaymentService.pay_installment(self.first_repayment)
+
+        self.first_repayment.refresh_from_db()
+        self.assertEqual(self.first_repayment.status, Repayment.Status.PAID)
