@@ -6,6 +6,8 @@ from django.utils import timezone
 from apps.notifications.tasks import create_notification
 from apps.notifications.models import Notification
 from apps.investments.models import Investment
+from django.conf import settings
+from django.contrib.auth import get_user_model
 from apps.projects.models import Project
 from .models import RepaymentPlan, Repayment
 

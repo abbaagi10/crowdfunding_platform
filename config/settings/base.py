@@ -5,6 +5,7 @@ Django settings for config project.
 from pathlib import Path
 from decouple import config
 from datetime import timedelta
+from decimal import Decimal
 
 # BASE_DIR remonte de 3 niveaux car base.py est dans config/settings/
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -184,3 +185,12 @@ import sys
 if 'test' in sys.argv:
     CELERY_TASK_ALWAYS_EAGER = True
     CELERY_TASK_EAGER_PROPAGATES = True
+
+
+# ============================================
+# Configuration Commission Plateforme
+# ============================================
+
+# Taux de commission prélevé sur les INTÉRÊTS versés aux investisseurs
+# (jamais sur le capital, qui est intégralement remboursé)
+PLATFORM_COMMISSION_RATE = config('PLATFORM_COMMISSION_RATE', default='10.00', cast=Decimal)    
