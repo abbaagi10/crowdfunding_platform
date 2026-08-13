@@ -2,11 +2,13 @@
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from drf_spectacular.utils import extend_schema
 
 from apps.accounts.permissions import IsAdminOrSuperAdmin
 from .models import CompanyProfile
 from .permissions import IsCompanyProfileOwnerOrAdmin
 from .serializers import CompanyProfileSerializer, CompanyProfileAdminUpdateSerializer
+
 
 
 class MyCompanyProfileView(generics.RetrieveUpdateAPIView):
@@ -52,7 +54,11 @@ class CompanyProfileDetailView(generics.RetrieveAPIView):
     serializer_class = CompanyProfileSerializer
     permission_classes = (IsAuthenticated, IsCompanyProfileOwnerOrAdmin)
 
-
+@extend_schema(
+    tags=['companies'],
+    request=CompanyProfileAdminUpdateSerializer,
+    responses={200: CompanyProfileSerializer}
+)
 class CompanyProfileVerificationView(APIView):
     """
     Endpoint PATCH /api/v1/companies/profiles/<id>/verify/

@@ -96,7 +96,7 @@ class InvestorProfile(models.Model):
         return f"Profil de {self.user.email} ({self.get_verification_status_display()})"
 
     @property
-    def is_kyc_complete(self):
+    def is_kyc_complete(self) -> bool:
         """
         Propriété calculée (pas stockée en base) qui vérifie si les documents
         essentiels ont été fournis. Utile pour bloquer un investissement

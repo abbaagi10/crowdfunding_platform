@@ -133,7 +133,7 @@ class CompanyProfile(models.Model):
         return f"{self.company_name} ({self.get_verification_status_display()})"
 
     @property
-    def is_kyb_complete(self):
+    def is_kyb_complete(self) -> bool:
         """
         Vérifie si les documents essentiels du dossier KYB ont été fournis.
         Utilisé dans l'étape future (module Projet) pour bloquer la création

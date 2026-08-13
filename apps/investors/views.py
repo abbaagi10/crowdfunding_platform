@@ -2,6 +2,7 @@ from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from drf_spectacular.utils import extend_schema
 
 from apps.accounts.permissions import IsAdminOrSuperAdmin
 from .models import InvestorProfile
@@ -51,7 +52,11 @@ class InvestorProfileDetailView(generics.RetrieveAPIView):
     serializer_class = InvestorProfileSerializer
     permission_classes = (IsAuthenticated, IsProfileOwnerOrAdmin)
 
-
+@extend_schema(
+    tags=['investors'],
+    request=InvestorProfileAdminUpdateSerializer,
+    responses={200: InvestorProfileSerializer}
+)
 class InvestorProfileVerificationView(APIView):
     """
     Endpoint PATCH /api/v1/investors/profiles/<id>/verify/

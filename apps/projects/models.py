@@ -166,14 +166,14 @@ class Project(models.Model):
             raise ValidationError(errors)
 
     @property
-    def funding_percentage(self):
+    def funding_percentage(self) -> Decimal:
         """Pourcentage de l'objectif atteint, calculé à la volée (non stocké)."""
         if self.funding_goal == 0:
             return 0
         return round((self.current_amount / self.funding_goal) * 100, 2)
 
     @property
-    def is_open_for_investment(self):
+    def is_open_for_investment(self) -> bool:
         """
         Un projet n'accepte des investissements que s'il est ACTIVE
         ET que sa date de fin n'est pas dépassée.

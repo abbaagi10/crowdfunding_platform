@@ -2,7 +2,7 @@
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
-
+from drf_spectacular.utils import extend_schema
 from apps.accounts.permissions import IsAdminOrSuperAdmin
 from .models import Category, Project
 from .permissions import IsProjectOwnerOrAdminOrReadOnly, IsEntrepriseRole
@@ -83,6 +83,12 @@ class ProjectDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = (IsProjectOwnerOrAdminOrReadOnly,)
 
 
+
+@extend_schema(
+    tags=['projects'],
+    request=None,
+    responses={200: ProjectSerializer}
+)
 class ProjectSubmitForReviewView(APIView):
     """
     Endpoint POST /api/v1/projects/projects/<id>/submit/
@@ -116,7 +122,11 @@ class ProjectSubmitForReviewView(APIView):
 
         return Response(ProjectSerializer(project).data, status=status.HTTP_200_OK)
 
-
+@extend_schema(
+    tags=['projects'],
+    request=ProjectModerationSerializer,
+    responses={200: ProjectSerializer}
+)
 class ProjectModerationView(APIView):
     """
     Endpoint PATCH /api/v1/projects/projects/<id>/moderate/

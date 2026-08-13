@@ -3,7 +3,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.core.exceptions import ValidationError as DjangoValidationError
-
+from drf_spectacular.utils import extend_schema
 from apps.accounts.permissions import IsAdminOrSuperAdmin
 from apps.projects.models import Project
 from .models import Transaction
@@ -30,7 +30,11 @@ class MyTransactionListView(generics.ListAPIView):
             return Transaction.objects.none()
         return Transaction.objects.filter(wallet=wallet).select_related('project')
 
-
+@extend_schema(
+    tags=['transactions'],
+    request=DepositRequestSerializer,
+    responses={201: TransactionSerializer}
+)
 class DepositView(APIView):
     """
     Endpoint POST /api/v1/transactions/deposit/
@@ -58,7 +62,11 @@ class DepositView(APIView):
 
         return Response(TransactionSerializer(txn).data, status=status.HTTP_201_CREATED)
 
-
+@extend_schema(
+    tags=['transactions'],
+    request=WithdrawRequestSerializer,
+    responses={201: TransactionSerializer}
+)
 class WithdrawView(APIView):
     """
     Endpoint POST /api/v1/transactions/withdraw/
@@ -88,7 +96,11 @@ class WithdrawView(APIView):
 
         return Response(TransactionSerializer(txn).data, status=status.HTTP_201_CREATED)
 
-
+@extend_schema(
+    tags=['transactions'],
+    request=InvestRequestSerializer,
+    responses={201: TransactionSerializer}
+)
 class InvestView(APIView):
     """
     Endpoint POST /api/v1/transactions/invest/

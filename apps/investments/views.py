@@ -3,7 +3,7 @@ from rest_framework import generics
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-
+from drf_spectacular.utils import extend_schema, OpenApiResponse
 from apps.accounts.permissions import IsAdminOrSuperAdmin
 from .models import Investment
 from .serializers import InvestmentSerializer
@@ -26,7 +26,12 @@ class MyInvestmentListView(generics.ListAPIView):
             investor_profile=investor_profile
         ).select_related('project', 'project__company', 'transaction')
 
-
+@extend_schema(
+    tags=['investments'],
+    responses={200: OpenApiResponse(description=(
+        "Résumé agrégé : total_invested, total_remaining, projects_count"
+    ))}
+)
 class MyInvestmentSummaryView(APIView):
     """
     Endpoint GET /api/v1/investments/me/summary/

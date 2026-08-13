@@ -3,14 +3,18 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.core.exceptions import ValidationError as DjangoValidationError
-
+from drf_spectacular.utils import extend_schema
 from apps.accounts.permissions import IsAdminOrSuperAdmin
 from apps.projects.models import Project
 from .models import RepaymentPlan, Repayment
 from .services import RepaymentService
 from .serializers import RepaymentPlanSerializer, GeneratePlanRequestSerializer, RepaymentSerializer
 
-
+@extend_schema(
+    tags=['repayments'],
+    request=GeneratePlanRequestSerializer,
+    responses={201: RepaymentPlanSerializer}
+)
 class GeneratePlanView(APIView):
     """
     Endpoint POST /api/v1/repayments/plans/generate/<project_id>/
@@ -40,7 +44,11 @@ class GeneratePlanView(APIView):
 
         return Response(RepaymentPlanSerializer(plan).data, status=status.HTTP_201_CREATED)
 
-
+@extend_schema(
+    tags=['repayments'],
+    request=None,
+    responses={200: RepaymentSerializer}
+)
 class PayInstallmentView(APIView):
     """
     Endpoint POST /api/v1/repayments/<id>/pay/

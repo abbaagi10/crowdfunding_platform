@@ -75,7 +75,7 @@ class RepaymentPlan(models.Model):
         return f"Plan de {self.project.title} ({self.get_status_display()})"
 
     @property
-    def total_amount(self):
+    def total_amount(self) -> Decimal:
         """Montant total a rembourser, capital + interets confondus."""
         return self.total_capital + self.total_interest
 
@@ -153,6 +153,6 @@ class Repayment(models.Model):
         )
 
     @property
-    def total_amount(self):
+    def total_amount(self) -> Decimal:
         """Montant total de CETTE echeance (capital + interets), pour CET investisseur."""
         return self.capital_amount + self.interest_amount

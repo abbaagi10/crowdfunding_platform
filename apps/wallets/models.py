@@ -75,7 +75,7 @@ class Wallet(models.Model):
         return f"Portefeuille de {self.user.email} ({self.balance} {self.currency})"
 
     @property
-    def available_balance(self):
+    def available_balance(self) -> Decimal:
         """
         Solde réellement disponible = solde total - solde bloqué.
         Propriété calculée, JAMAIS stockée : elle ne peut donc jamais

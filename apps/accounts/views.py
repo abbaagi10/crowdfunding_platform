@@ -1,6 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
+from drf_spectacular.utils import extend_schema, OpenApiResponse
 
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -64,7 +65,11 @@ class CustomTokenObtainPairView(BaseTokenObtainPairView):
     """
     serializer_class = CustomTokenObtainPairSerializer
 
-
+@extend_schema(
+    tags=['accounts'],
+    request={'application/json': {'type': 'object', 'properties': {'refresh': {'type': 'string'}}}},
+    responses={205: OpenApiResponse(description="Déconnexion réussie.")}
+)
 class LogoutView(APIView):
     """
     Endpoint de déconnexion (POST /api/v1/accounts/logout/).
@@ -95,7 +100,10 @@ class LogoutView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-
+@extend_schema(
+    tags=['accounts'],
+    responses={200: UserSerializer}
+)
 class MeView(APIView):
     """
     Endpoint de profil (GET /api/v1/accounts/me/).
@@ -107,7 +115,10 @@ class MeView(APIView):
         serializer = UserSerializer(request.user)
         return Response(serializer.data)
 
-
+@extend_schema(
+    tags=['accounts'],
+    responses={200: OpenApiResponse(description="Compte activé avec succès.")}
+)
 class ActivateAccountView(APIView):
     """
     Endpoint d'activation de compte (GET /api/v1/accounts/activate/<uidb64>/<token>/).
@@ -153,7 +164,11 @@ class ActivateAccountView(APIView):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-
+@extend_schema(
+    tags=['accounts'],
+    request=PasswordResetRequestSerializer,
+    responses={200: OpenApiResponse(description="Email de réinitialisation envoyé si le compte existe.")}
+)
 class PasswordResetRequestView(APIView):
     """
     Endpoint de demande de réinitialisation (POST /api/v1/accounts/password-reset/).
@@ -198,7 +213,11 @@ class PasswordResetRequestView(APIView):
             status=status.HTTP_200_OK
         )
 
-
+@extend_schema(
+    tags=['accounts'],
+    request=PasswordResetConfirmSerializer,
+    responses={200: OpenApiResponse(description="Mot de passe réinitialisé avec succès.")}
+)
 class PasswordResetConfirmView(APIView):
     """
     Endpoint de confirmation (POST /api/v1/accounts/password-reset/confirm/).

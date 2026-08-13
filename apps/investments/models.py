@@ -87,6 +87,6 @@ class Investment(models.Model):
         return f"{self.investor_profile.user.email} -> {self.project.title} : {self.amount}"
 
     @property
-    def remaining_amount(self):
+    def remaining_amount(self) -> Decimal:
         """Montant encore non rembourse sur cet investissement (utilise a l'Etape 10)."""
         return self.amount - self.amount_refunded

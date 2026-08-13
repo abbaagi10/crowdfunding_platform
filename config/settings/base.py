@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
+    'drf_spectacular',
 
     #Local Apps
     'apps.accounts',
@@ -54,6 +55,8 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+     # Indique a DRF d'utiliser drf-spectacular pour generer le schema OpenAPI
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
 # Configuration des tokens JWT (durées, rotation, sécurité)
@@ -159,3 +162,72 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Configuration des fichiers uploadés par les utilisateurs (photos, documents KYC)
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# ============================================
+# Configuration drf-spectacular (documentation API)
+# ============================================
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Crowdfunding Platform API',
+    'DESCRIPTION': (
+        "API REST complete pour une plateforme de crowdfunding : "
+        "authentification JWT, profils KYC/KYB, projets, investissements, "
+        "wallets, transactions et remboursements."
+    ),
+    'VERSION': '1.0.0',
+
+    'SERVE_INCLUDE_SCHEMA': False,
+
+    'SCHEMA_PATH_PREFIX': r'/api/v[0-9]+/',
+
+    'TAGS': [
+        {'name': 'accounts', 'description': 'Authentification, activation, reset de mot de passe'},
+        {'name': 'investors', 'description': 'Profils investisseurs et KYC'},
+        {'name': 'companies', 'description': 'Profils entreprises et KYB'},
+        {'name': 'projects', 'description': 'Campagnes de crowdfunding'},
+        {'name': 'wallets', 'description': 'Portefeuilles financiers'},
+        {'name': 'transactions', 'description': 'Depots, retraits, investissements'},
+        {'name': 'investments', 'description': 'Portefeuille d\'investissements'},
+        {'name': 'repayments', 'description': 'Plans et echeances de remboursement'},
+        {'name': 'notifications', 'description': 'Notifications in-app'},
+    ],
+
+    'ENUM_NAME_OVERRIDES': {
+        'InvestmentStatusEnum': [
+            ('ACTIVE', 'Actif'),
+            ('REFUNDED', 'Rembourse'),
+            ('PARTIALLY_REFUNDED', 'Partiellement rembourse'),
+        ],
+
+        'ProjectStatusEnum': [
+            ('DRAFT', 'Brouillon'),
+            ('PENDING', 'En attente de validation'),
+            ('NEEDS_CORRECTION', 'Corrections demandées'),
+            ('APPROVED', 'Approuvé'),
+            ('REJECTED', 'Refusé'),
+            ('ACTIVE', 'Actif (collecte en cours)'),
+            ('COMPLETED', 'Terminé'),
+            ('CANCELLED', 'Annulé'),
+        ],
+
+        'RepaymentPlanStatusEnum': [
+            ('DRAFT', 'Brouillon'),
+            ('ACTIVE', 'Actif'),
+            ('COMPLETED', 'Terminé'),
+            ('DEFAULTED', 'En défaut'),
+        ],
+
+        'RepaymentStatusEnum': [
+            ('SCHEDULED', 'Planifiée'),
+            ('PAID', 'Payée'),
+            ('LATE', 'En retard'),
+            ('CANCELLED', 'Annulée'),
+        ],
+
+        'TransactionStatusEnum': [
+            ('PENDING', 'En attente'),
+            ('COMPLETED', 'Terminée'),
+            ('FAILED', 'Échouée'),
+            ('CANCELLED', 'Annulée'),
+        ],
+    },
+}
