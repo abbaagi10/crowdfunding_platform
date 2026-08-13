@@ -20,6 +20,7 @@ class CustomUser(AbstractUser):
         USERADMIN = 'USERADMIN', 'Administrateur'
         ENTREPRISE = 'ENTREPRISE', 'Entreprise'
         INVESTISSEUR = 'INVESTISSEUR', 'Investisseur'
+        PLATFORM = 'PLATFORM', 'Compte Plateforme' 
 
     # On neutralise le champ username hérité d'AbstractUser (on ne l'utilise plus)
     username = None

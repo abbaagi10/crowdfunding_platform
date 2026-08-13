@@ -8,7 +8,7 @@ from .models import Wallet
 # Rôles pour lesquels un portefeuille a un sens métier.
 # Les administrateurs (SUPERADMIN, USERADMIN) n'investissent jamais
 # et ne reçoivent jamais de fonds collectés -- ils n'ont pas besoin de wallet.
-WALLET_ELIGIBLE_ROLES = ('INVESTISSEUR', 'ENTREPRISE')
+WALLET_ELIGIBLE_ROLES = ('INVESTISSEUR', 'ENTREPRISE', 'PLATFORM')
 
 
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)

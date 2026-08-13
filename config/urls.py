@@ -14,6 +14,7 @@ urlpatterns = [
     path('api/v1/transactions/', include('apps.transactions.urls')),
     path('api/v1/investments/', include('apps.investments.urls')),
     path('api/v1/repayments/', include('apps.repayments.urls')),
+    path('api/v1/notifications/', include('apps.notifications.urls')),
     # Documentation API (OpenAPI / Swagger / Redoc)
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
@@ -21,6 +22,5 @@ urlpatterns = [
 ]
 
 # En développement uniquement : sert les fichiers uploadés (MEDIA_ROOT) via Django lui-même.
-# En production, un vrai serveur web (nginx, etc.) ou un stockage cloud (S3) s'en charge.
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

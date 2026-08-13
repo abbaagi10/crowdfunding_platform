@@ -1,9 +1,13 @@
 ﻿from decimal import Decimal, ROUND_HALF_UP
 
+from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.db import transaction as db_transaction
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
+from apps.notifications.tasks import create_notification
+from apps.notifications.models import Notification
 from apps.investments.models import Investment
 from apps.projects.models import Project
 from .models import RepaymentPlan, Repayment
@@ -144,21 +148,19 @@ class RepaymentService:
                 )
 
         return plan
+
     @staticmethod
     @db_transaction.atomic
     def pay_installment(repayment: Repayment) -> Repayment:
         """
         Execute le paiement REEL d'une echeance :
         1. Debite le wallet de l'ENTREPRISE porteuse du projet
-        2. Credite le wallet de l'INVESTISSEUR (capital + interets)
-        3. Trace deux Transactions cote investisseur (REFUND pour le capital,
-           INTEREST pour les interets) -- le debit entreprise reste trace
-           dans son WalletHistory via wallet.debit(), sans Transaction dediee
-           (le wallet de l'entreprise n'est pas lie a un "investissement",
-           differencier ce mouvement necessiterait un type de Transaction
-           supplementaire, hors scope pour cette etape).
+        2. Credite le CAPITAL a l'investisseur (integral, jamais taxe)
+        3. Credite les INTERETS NETS a l'investisseur, et la COMMISSION
+           a la plateforme (si un compte PLATFORM existe)
         4. Met a jour Investment.amount_refunded et son statut
         5. Marque l'echeance comme PAID
+        6. Notifie l'investisseur (apres commit reel de la transaction SQL)
         """
         from apps.transactions.models import Transaction
         from apps.wallets.models import Wallet
@@ -191,7 +193,7 @@ class RepaymentService:
             description=f"Remboursement echeance #{repayment.installment_number} - {investment.project.title}"
         )
 
-        # 2 & 3. Credit investisseur + Transactions tracees, une par nature de montant
+        # 2. Remboursement du CAPITAL -- toujours integral, jamais taxe
         if repayment.capital_amount > 0:
             refund_txn = Transaction.objects.create(
                 wallet=investor_wallet,
@@ -205,18 +207,46 @@ class RepaymentService:
             refund_txn.status = Transaction.Status.COMPLETED
             refund_txn.save()
 
+        # 3. Versement des INTERETS, nets de commission plateforme
         if repayment.interest_amount > 0:
+            User = get_user_model()
+            platform_user = User.objects.filter(role=User.Role.PLATFORM).first()
+
+            commission_amount = Decimal('0.00')
+            if platform_user is not None:
+                commission_rate = settings.PLATFORM_COMMISSION_RATE / Decimal('100')
+                commission_amount = (repayment.interest_amount * commission_rate).quantize(
+                    Decimal('0.01'), rounding=ROUND_HALF_UP
+                )
+
+            net_interest_for_investor = repayment.interest_amount - commission_amount
+
             interest_txn = Transaction.objects.create(
                 wallet=investor_wallet,
                 project=investment.project,
                 transaction_type=Transaction.TransactionType.INTEREST,
-                amount=repayment.interest_amount,
+                amount=net_interest_for_investor,
                 status=Transaction.Status.PENDING,
-                description=f"Interets - echeance #{repayment.installment_number}",
+                description=f"Interets nets - echeance #{repayment.installment_number}",
             )
-            investor_wallet.credit(repayment.interest_amount, description=f"Interest - {interest_txn.reference}")
+            investor_wallet.credit(net_interest_for_investor, description=f"Interest - {interest_txn.reference}")
             interest_txn.status = Transaction.Status.COMPLETED
             interest_txn.save()
+
+            if platform_user is not None and commission_amount > 0:
+                platform_wallet = Wallet.objects.select_for_update().get(user=platform_user)
+
+                commission_txn = Transaction.objects.create(
+                    wallet=platform_wallet,
+                    project=investment.project,
+                    transaction_type=Transaction.TransactionType.COMMISSION,
+                    amount=commission_amount,
+                    status=Transaction.Status.PENDING,
+                    description=f"Commission - echeance #{repayment.installment_number} - {investment.project.title}",
+                )
+                platform_wallet.credit(commission_amount, description=f"Commission - {commission_txn.reference}")
+                commission_txn.status = Transaction.Status.COMPLETED
+                commission_txn.save()
 
         # 4. Mise a jour de la position d'investissement
         investment.amount_refunded += repayment.capital_amount
@@ -230,5 +260,15 @@ class RepaymentService:
         repayment.status = Repayment.Status.PAID
         repayment.paid_at = timezone.now()
         repayment.save()
+
+        # 6. Notification asynchrone, apres validation reelle de la transaction SQL.
+        # on_commit() garantit qu'aucune notification n'est envoyee si ce bloc
+        # atomic() devait finalement etre annule pour une raison quelconque.
+        db_transaction.on_commit(lambda: create_notification.delay(
+            user_id=investment.investor_profile.user.pk,
+            notification_type=Notification.NotificationType.REPAYMENT_PAID,
+            title="Échéance remboursée",
+            message=f"Vous avez reçu {repayment.total_amount} pour votre investissement dans '{investment.project.title}'.",
+        ))
 
         return repayment

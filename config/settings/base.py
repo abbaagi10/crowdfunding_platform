@@ -5,6 +5,7 @@ Django settings for config project.
 from pathlib import Path
 from decouple import config
 from datetime import timedelta
+from decimal import Decimal
 
 # BASE_DIR remonte de 3 niveaux car base.py est dans config/settings/
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -35,6 +36,7 @@ INSTALLED_APPS = [
     'drf_spectacular',
 
     #Local Apps
+    'django_celery_results',
     'apps.accounts',
     'apps.investors',
     'apps.companies',
@@ -43,6 +45,7 @@ INSTALLED_APPS = [
     'apps.transactions',
     'apps.investments',
     'apps.repayments',
+    'apps.notifications', 
 ]
 
 # Configuration de Django REST Framework
@@ -231,3 +234,24 @@ SPECTACULAR_SETTINGS = {
         ],
     },
 }
+
+# ============================================
+# Configuration Celery
+# ============================================
+CELERY_BROKER_URL = config('CELERY_BROKER_URL', default='redis://localhost:6379/0')
+CELERY_RESULT_BACKEND = 'django-db'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'UTC'
+
+# En mode test, exécute les tâches Celery de façon SYNCHRONE et immédiate,
+# sans passer par Redis -- élimine toute dépendance externe pendant les tests.
+import sys
+if 'test' in sys.argv:
+    CELERY_TASK_ALWAYS_EAGER = True
+    CELERY_TASK_EAGER_PROPAGATES = True
+
+# Taux de commission prélevé par la plateforme sur les INTÉRÊTS versés
+# aux investisseurs (jamais sur le capital, qui reste intégralement remboursé).
+PLATFORM_COMMISSION_RATE = config('PLATFORM_COMMISSION_RATE', default='10.00', cast=Decimal)

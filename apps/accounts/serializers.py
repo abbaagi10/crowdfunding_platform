@@ -56,6 +56,19 @@ class RegisterSerializer(serializers.ModelSerializer):
             role=validated_data.get('role', User.Role.INVESTISSEUR),
         )
         return user
+    def validate_role(self, value):
+        """
+        SÉCURITÉ : un utilisateur public ne doit JAMAIS pouvoir s'inscrire
+        avec un rôle privilégié (SUPERADMIN, USERADMIN) ni le rôle système
+        PLATFORM. Seuls INVESTISSEUR et ENTREPRISE sont autorisés à
+        l'inscription publique.
+        """
+        allowed_public_roles = (User.Role.INVESTISSEUR, User.Role.ENTREPRISE)
+        if value not in allowed_public_roles:
+            raise serializers.ValidationError(
+                "Ce rôle n'est pas disponible pour l'inscription publique."
+            )
+        return value
 
 
 class UserSerializer(serializers.ModelSerializer):
