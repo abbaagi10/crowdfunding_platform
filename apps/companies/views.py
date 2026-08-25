@@ -2,24 +2,23 @@
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.parsers import MultiPartParser, FormParser
 from drf_spectacular.utils import extend_schema
 
 from apps.accounts.permissions import IsAdminOrSuperAdmin
 from .models import CompanyProfile
 from .permissions import IsCompanyProfileOwnerOrAdmin
 from .serializers import CompanyProfileSerializer, CompanyProfileAdminUpdateSerializer
-
+from rest_framework.generics import ListAPIView
+from rest_framework.permissions import IsAdminUser
+from apps.companies.models import CompanyProfile
+from apps.companies.serializers import CompanyProfileSerializer
 
 
 class MyCompanyProfileView(generics.RetrieveUpdateAPIView):
     """
     Endpoint GET/PUT/PATCH /api/v1/companies/profile/me/
     Permet à l'entreprise connectée de consulter et modifier SON PROPRE profil.
-
-    Contrairement à InvestorProfile, on ne peut PAS utiliser get_or_create ici
-    sans argument supplémentaire : company_name et registration_number sont
-    des champs obligatoires (pas de valeur par défaut sensée). Le profil doit
-    donc être créé explicitement via un POST, pas silencieusement au premier GET.
     """
     serializer_class = CompanyProfileSerializer
     permission_classes = (IsAuthenticated,)
@@ -54,6 +53,7 @@ class CompanyProfileDetailView(generics.RetrieveAPIView):
     serializer_class = CompanyProfileSerializer
     permission_classes = (IsAuthenticated, IsCompanyProfileOwnerOrAdmin)
 
+
 @extend_schema(
     tags=['companies'],
     request=CompanyProfileAdminUpdateSerializer,
@@ -83,3 +83,109 @@ class CompanyProfileVerificationView(APIView):
             CompanyProfileSerializer(profile).data,
             status=status.HTTP_200_OK
         )
+
+
+# ============ ENDPOINTS D'UPLOAD DE FICHIERS ============
+
+class UploadCompanyLogoView(APIView):
+    """
+    POST /api/v1/companies/profile/upload-logo/
+    Upload du logo de l'entreprise
+    """
+    permission_classes = (IsAuthenticated,)
+    parser_classes = (MultiPartParser, FormParser)
+
+    def post(self, request):
+        try:
+            profile = CompanyProfile.objects.get(user=request.user)
+        except CompanyProfile.DoesNotExist:
+            return Response(
+                {"detail": "Profil entreprise non trouvé"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        if 'logo' not in request.FILES:
+            return Response(
+                {"detail": "Aucun fichier fourni"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        profile.company_logo = request.FILES['logo']
+        profile.save()
+        
+        serializer = CompanyProfileSerializer(profile)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class UploadRegistrationDocumentView(APIView):
+    """
+    POST /api/v1/companies/profile/upload-registration/
+    Upload du document d'enregistrement (Kbis)
+    """
+    permission_classes = (IsAuthenticated,)
+    parser_classes = (MultiPartParser, FormParser)
+
+    def post(self, request):
+        try:
+            profile = CompanyProfile.objects.get(user=request.user)
+        except CompanyProfile.DoesNotExist:
+            return Response(
+                {"detail": "Profil entreprise non trouvé"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        if 'document' not in request.FILES:
+            return Response(
+                {"detail": "Aucun fichier fourni"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        profile.registration_document = request.FILES['document']
+        profile.save()
+        
+        serializer = CompanyProfileSerializer(profile)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class UploadIdentityDocumentView(APIView):
+    """
+    POST /api/v1/companies/profile/upload-identity/
+    Upload de la pièce d'identité du représentant
+    """
+    permission_classes = (IsAuthenticated,)
+    parser_classes = (MultiPartParser, FormParser)
+
+    def post(self, request):
+        try:
+            profile = CompanyProfile.objects.get(user=request.user)
+        except CompanyProfile.DoesNotExist:
+            return Response(
+                {"detail": "Profil entreprise non trouvé"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        if 'document' not in request.FILES:
+            return Response(
+                {"detail": "Aucun fichier fourni"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        profile.legal_representative_id_document = request.FILES['document']
+        profile.save()
+        
+        serializer = CompanyProfileSerializer(profile)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+class CompanyProfileListView(ListAPIView):
+    """
+    Vue réservée à l'administration pour lister tous les profils entreprises.
+    GET /api/v1/companies/profiles/
+    """
+    permission_classes = [IsAdminUser]
+    queryset = CompanyProfile.objects.all()
+    serializer_class = CompanyProfileSerializer
+    
+    def get_queryset(self):
+        # Filtrer pour ne montrer que les profils en attente ou récents
+        return super().get_queryset().order_by('-created_at')
+    

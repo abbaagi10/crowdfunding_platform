@@ -16,6 +16,13 @@ class MyWalletView(generics.RetrieveAPIView):
     permission_classes = (IsAuthenticated,)
 
     def get(self, request, *args, **kwargs):
+        # 🔒 Vérifier que l'utilisateur n'est pas un administrateur
+        if request.user.role in ['SUPERADMIN', 'USERADMIN']:
+            return Response(
+                {"detail": "Les administrateurs n'ont pas de portefeuille."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         wallet = Wallet.objects.filter(user=request.user).first()
         if wallet is None:
             return Response(
@@ -35,6 +42,10 @@ class MyWalletHistoryView(generics.ListAPIView):
     permission_classes = (IsAuthenticated,)
 
     def get_queryset(self):
+        # 🔒 Vérifier que l'utilisateur n'est pas un administrateur
+        if self.request.user.role in ['SUPERADMIN', 'USERADMIN']:
+            return Wallet.objects.none()
+
         wallet = Wallet.objects.filter(user=self.request.user).first()
         if wallet is None:
             return Wallet.objects.none()
@@ -76,4 +87,7 @@ class WalletHistoryDetailView(generics.ListAPIView):
 
     def get_queryset(self):
         wallet_id = self.kwargs['pk']
-        return Wallet.objects.filter(pk=wallet_id).first().history.all() if Wallet.objects.filter(pk=wallet_id).exists() else Wallet.objects.none()
+        wallet = Wallet.objects.filter(pk=wallet_id).first()
+        if wallet is None:
+            return Wallet.objects.none()
+        return wallet.history.all()

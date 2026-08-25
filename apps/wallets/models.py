@@ -45,7 +45,7 @@ class Wallet(models.Model):
 
     currency = models.CharField(
         max_length=3,
-        default='EUR',
+        default='XOF',
         verbose_name="Devise",
         help_text="Code ISO 4217 (EUR, USD...). Une seule devise gérée pour l'instant."
     )

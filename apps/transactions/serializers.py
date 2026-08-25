@@ -5,6 +5,12 @@ from .models import Transaction
 
 
 class TransactionSerializer(serializers.ModelSerializer):
+    """
+    Serializer de CONSULTATION uniquement. Aucune transaction ne se cree
+    directement via un serializer/vue generique -- toute creation passe
+    exclusivement par TransactionService.
+    """
+
     wallet_user_email = serializers.EmailField(source='wallet.user.email', read_only=True)
     project_title = serializers.CharField(source='project.title', read_only=True, default=None)
 

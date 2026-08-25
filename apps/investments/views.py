@@ -8,6 +8,74 @@ from apps.accounts.permissions import IsAdminOrSuperAdmin
 from .models import Investment
 from .serializers import InvestmentSerializer
 
+from rest_framework import generics, status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from .models import Investment
+from .serializers import InvestmentSerializer
+
+
+class InvestmentListView(generics.ListAPIView):
+    """
+    Liste de tous les investissements (admin).
+    GET /api/v1/investments/
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = InvestmentSerializer
+    queryset = Investment.objects.all()
+
+
+class InvestmentMeView(generics.ListAPIView):
+    """
+    Liste des investissements de l'utilisateur connecté.
+    GET /api/v1/investments/me/
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = InvestmentSerializer
+
+    def get_queryset(self):
+        return Investment.objects.filter(
+            investor_profile__user=self.request.user
+        ).order_by('-created_at')
+
+
+class InvestmentSummaryView(APIView):
+    """
+    Résumé des investissements de l'utilisateur connecté.
+    GET /api/v1/investments/me/summary/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        investments = Investment.objects.filter(
+            investor_profile__user=request.user,
+            status='ACTIVE'
+        )
+
+        total_invested = sum(float(i.amount) for i in investments)
+        total_remaining = sum(float(i.remaining_amount) for i in investments)
+        projects_count = investments.values('project').distinct().count()
+
+        return Response({
+            'total_invested': f"{total_invested:.2f}",
+            'total_remaining': f"{total_remaining:.2f}",
+            'projects_count': projects_count
+        })
+
+
+class InvestmentProjectView(generics.ListAPIView):
+    """
+    Liste des investissements pour un projet spécifique.
+    GET /api/v1/investments/project/{project_id}/
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = InvestmentSerializer
+
+    def get_queryset(self):
+        project_id = self.kwargs['project_id']
+        return Investment.objects.filter(project_id=project_id)
 
 class MyInvestmentListView(generics.ListAPIView):
     """

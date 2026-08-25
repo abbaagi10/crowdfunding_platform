@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.core.exceptions import ValidationError as DjangoValidationError
 from drf_spectacular.utils import extend_schema
+
 from apps.accounts.permissions import IsAdminOrSuperAdmin
 from apps.projects.models import Project
 from .models import Transaction
@@ -30,6 +31,7 @@ class MyTransactionListView(generics.ListAPIView):
             return Transaction.objects.none()
         return Transaction.objects.filter(wallet=wallet).select_related('project')
 
+
 @extend_schema(
     tags=['transactions'],
     request=DepositRequestSerializer,
@@ -39,7 +41,6 @@ class DepositView(APIView):
     """
     Endpoint POST /api/v1/transactions/deposit/
     Simule un depot de fonds sur le wallet de l'utilisateur connecte.
-    (Integration reelle d'un prestataire de paiement -- hors scope ici.)
     """
     permission_classes = (IsAuthenticated,)
 
@@ -61,6 +62,7 @@ class DepositView(APIView):
         )
 
         return Response(TransactionSerializer(txn).data, status=status.HTTP_201_CREATED)
+
 
 @extend_schema(
     tags=['transactions'],
@@ -96,6 +98,7 @@ class WithdrawView(APIView):
 
         return Response(TransactionSerializer(txn).data, status=status.HTTP_201_CREATED)
 
+
 @extend_schema(
     tags=['transactions'],
     request=InvestRequestSerializer,
@@ -129,7 +132,6 @@ class InvestView(APIView):
         except InsufficientFundsError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except DjangoValidationError as e:
-            # e peut contenir soit une liste de messages, soit un dict -- on normalise en texte
             message = e.messages[0] if hasattr(e, 'messages') else str(e)
             return Response({"detail": message}, status=status.HTTP_400_BAD_REQUEST)
 

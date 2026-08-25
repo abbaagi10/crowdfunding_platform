@@ -27,13 +27,20 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
+    'rest_framework.authtoken', 
     'django.contrib.staticfiles',
+    'corsheaders',
 
     # Third-party apps
     'rest_framework',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
     'drf_spectacular',
+    'django.contrib.sites',
+    'allauth',
+    'allauth.account',
+    'allauth.socialaccount',
+    'allauth.socialaccount.providers.google',
 
     #Local Apps
     'django_celery_results',
@@ -91,10 +98,12 @@ SIMPLE_JWT = {
     # Champ utilisé comme identifiant dans le payload du token
     'USER_ID_FIELD': 'id',
     'USER_ID_CLAIM': 'user_id',
+    
 }
 
 AUTH_USER_MODEL = 'accounts.CustomUser'
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -102,7 +111,38 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'allauth.account.middleware.AccountMiddleware',
 ]
+
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',
+    'allauth.account.auth_backends.AuthenticationBackend',
+]
+
+SITE_ID = 1
+
+# Provider specific settings
+SOCIALACCOUNT_PROVIDERS = {
+    'google': {
+        'APP': {
+            'client_id': 'VOTRE_CLIENT_ID_GOOGLE',
+            'secret': 'VOTRE_SECRET_GOOGLE',
+            'key': ''
+        },
+        'SCOPE': [
+            'profile',
+            'email',
+        ],
+        'AUTH_PARAMS': {
+            'access_type': 'online',
+        },
+        'VERIFIED_EMAIL': True,
+    }
+}
+
+# Redirection après connexion Google
+LOGIN_REDIRECT_URL = 'http://localhost:5173/auth/google/callback'
+SOCIALACCOUNT_LOGIN_ON_GET = True
 
 ROOT_URLCONF = 'config.urls'
 
@@ -255,3 +295,8 @@ if 'test' in sys.argv:
 # Taux de commission prélevé par la plateforme sur les INTÉRÊTS versés
 # aux investisseurs (jamais sur le capital, qui reste intégralement remboursé).
 PLATFORM_COMMISSION_RATE = config('PLATFORM_COMMISSION_RATE', default='10.00', cast=Decimal)
+
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]

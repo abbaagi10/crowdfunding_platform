@@ -1,126 +1,157 @@
 ﻿from rest_framework import generics, status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from django.core.exceptions import ValidationError as DjangoValidationError
-from drf_spectacular.utils import extend_schema
-from apps.accounts.permissions import IsAdminOrSuperAdmin
-from apps.projects.models import Project
-from .models import RepaymentPlan, Repayment
+
+from .models import Repayment, RepaymentPlan
+from .serializers import (
+    RepaymentSerializer,
+    RepaymentPlanSerializer,
+    GeneratePlanSerializer
+)
 from .services import RepaymentService
-from .serializers import RepaymentPlanSerializer, GeneratePlanRequestSerializer, RepaymentSerializer
+from apps.investments.models import Investment
 
-@extend_schema(
-    tags=['repayments'],
-    request=GeneratePlanRequestSerializer,
-    responses={201: RepaymentPlanSerializer}
-)
-class GeneratePlanView(APIView):
+
+class MyRepaymentsView(generics.ListAPIView):
     """
-    Endpoint POST /api/v1/repayments/plans/generate/<project_id>/
-    Reserve a l'administration : genere le plan de remboursement d'un projet.
+    Liste des échéances de l'investisseur connecté.
+    GET /api/v1/repayments/me/
     """
-    permission_classes = (IsAdminOrSuperAdmin,)
-
-    def post(self, request, project_id):
-        try:
-            project = Project.objects.get(pk=project_id)
-        except Project.DoesNotExist:
-            return Response({"detail": "Projet introuvable."}, status=status.HTTP_404_NOT_FOUND)
-
-        serializer = GeneratePlanRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        try:
-            plan = RepaymentService.generate_plan(
-                project,
-                interest_rate=serializer.validated_data['interest_rate'],
-                number_of_installments=serializer.validated_data['number_of_installments'],
-                frequency_days=serializer.validated_data['frequency_days'],
-            )
-        except DjangoValidationError as e:
-            message = e.messages[0] if hasattr(e, 'messages') else str(e)
-            return Response({"detail": message}, status=status.HTTP_400_BAD_REQUEST)
-
-        return Response(RepaymentPlanSerializer(plan).data, status=status.HTTP_201_CREATED)
-
-@extend_schema(
-    tags=['repayments'],
-    request=None,
-    responses={200: RepaymentSerializer}
-)
-class PayInstallmentView(APIView):
-    """
-    Endpoint POST /api/v1/repayments/<id>/pay/
-    Reserve a l'administration : declenche le paiement REEL d'une echeance
-    (simule ici -- en production, ce serait typiquement automatise par
-    une tache planifiee verifiant les due_date, hors scope de cette etape).
-    """
-    permission_classes = (IsAdminOrSuperAdmin,)
-
-    def post(self, request, pk):
-        try:
-            repayment = Repayment.objects.select_related(
-                'investment', 'plan__project__company'
-            ).get(pk=pk)
-        except Repayment.DoesNotExist:
-            return Response({"detail": "Echeance introuvable."}, status=status.HTTP_404_NOT_FOUND)
-
-        try:
-            repayment = RepaymentService.pay_installment(repayment)
-        except DjangoValidationError as e:
-            message = e.messages[0] if hasattr(e, 'messages') else str(e)
-            return Response({"detail": message}, status=status.HTTP_400_BAD_REQUEST)
-
-        return Response(RepaymentSerializer(repayment).data, status=status.HTTP_200_OK)
-
-
-class MyRepaymentListView(generics.ListAPIView):
-    """
-    Endpoint GET /api/v1/repayments/me/
-    Toutes les echeances (passees et a venir) de l'investisseur connecte,
-    tous projets confondus -- son "calendrier de remboursements".
-    """
+    permission_classes = [IsAuthenticated]
     serializer_class = RepaymentSerializer
-    permission_classes = (IsAuthenticated,)
 
     def get_queryset(self):
-        investor_profile = getattr(self.request.user, 'investor_profile', None)
-        if investor_profile is None:
-            return Repayment.objects.none()
         return Repayment.objects.filter(
-            investment__investor_profile=investor_profile
-        ).select_related('investment', 'plan__project')
+            investment__investor_profile__user=self.request.user
+        ).order_by('due_date')
 
 
 class ProjectRepaymentPlanView(generics.RetrieveAPIView):
     """
-    Endpoint GET /api/v1/repayments/plans/project/<project_id>/
-    Consultation du plan de remboursement d'un projet : accessible a
-    l'entreprise proprietaire, aux investisseurs ayant investi dans ce
-    projet, et a l'administration.
+    Récupérer le plan de remboursement d'un projet.
+    GET /api/v1/repayments/plans/project/{project_id}/
     """
+    permission_classes = [IsAuthenticated]
     serializer_class = RepaymentPlanSerializer
-    permission_classes = (IsAuthenticated,)
 
     def get_object(self):
-        from django.shortcuts import get_object_or_404
+        from apps.projects.models import Project
         project_id = self.kwargs['project_id']
-        plan = get_object_or_404(RepaymentPlan, project_id=project_id)
+        project = Project.objects.get(id=project_id)
 
         user = self.request.user
-        if user.role in (user.Role.USERADMIN, user.Role.SUPERADMIN):
-            return plan
 
-        company_profile = getattr(user, 'company_profile', None)
-        if company_profile is not None and plan.project.company == company_profile:
-            return plan
+        if user.role in ['SUPERADMIN', 'USERADMIN']:
+            pass
+        elif user == project.company.user:
+            pass
+        else:
+            has_invested = Investment.objects.filter(
+                project=project,
+                investor_profile__user=user
+            ).exists()
+            if not has_invested:
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied("Vous n'avez pas accès à ce plan.")
 
-        investor_profile = getattr(user, 'investor_profile', None)
-        if investor_profile is not None:
-            has_invested = plan.project.investments.filter(investor_profile=investor_profile).exists()
-            if has_invested:
-                return plan
+        return RepaymentPlan.objects.get(project=project)
 
-        from rest_framework.exceptions import PermissionDenied
-        raise PermissionDenied("Vous n'avez pas acces au plan de remboursement de ce projet.")
+
+class GenerateRepaymentPlanView(APIView):
+    """
+    Générer le plan de remboursement (admin).
+    POST /api/v1/repayments/plans/generate/{project_id}/
+    """
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, project_id):
+        serializer = GeneratePlanSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        from apps.projects.models import Project
+        project = Project.objects.get(id=project_id)
+
+        try:
+            plan = RepaymentService.generate_plan(
+                project=project,
+                interest_rate=serializer.validated_data['interest_rate'],
+                number_of_installments=serializer.validated_data['number_of_installments'],
+                frequency_days=serializer.validated_data.get('frequency_days', 30)
+            )
+
+            return Response(
+                RepaymentPlanSerializer(plan).data,
+                status=status.HTTP_201_CREATED
+            )
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+
+class PayRepaymentView(APIView):
+    """
+    Payer une échéance (admin).
+    POST /api/v1/repayments/{id}/pay/
+    """
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, id):
+        try:
+            repayment = RepaymentService.pay_repayment(id)
+            return Response(RepaymentSerializer(repayment).data)
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+
+class CancelInvestmentView(APIView):
+    """
+    Annuler un investissement (investisseur).
+    POST /api/v1/repayments/cancel/{id}/ ou /api/v1/investments/{id}/cancel/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, id):
+        try:
+            print(f"🔍 [CANCEL] Tentative d'annulation de l'investissement {id}")
+            print(f"🔍 [CANCEL] Utilisateur: {request.user.email}")
+
+            investment = Investment.objects.get(id=id)
+            print(f"🔍 [CANCEL] Investissement trouvé: {investment.id}")
+
+            # Vérifier que l'utilisateur est le propriétaire
+            if investment.investor_profile.user != request.user:
+                print(f"❌ [CANCEL] Utilisateur non propriétaire")
+                return Response(
+                    {'error': 'Vous n\'êtes pas le propriétaire de cet investissement.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+            reason = request.data.get('reason', '')
+            print(f"🔍 [CANCEL] Motif: {reason}")
+
+            investment = RepaymentService.cancel_investment(id, reason)
+            print(f"✅ [CANCEL] Investissement annulé avec succès")
+
+            return Response({
+                'message': 'Investissement annulé avec succès. Les fonds ont été retournés dans votre portefeuille.',
+                'investment_id': investment.id,
+                'status': investment.status
+            })
+        except Investment.DoesNotExist:
+            print(f"❌ [CANCEL] Investissement non trouvé: {id}")
+            return Response(
+                {'error': 'Investissement non trouvé.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            print(f"❌ [CANCEL] Erreur: {str(e)}")
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )

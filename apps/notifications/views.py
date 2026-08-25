@@ -4,47 +4,71 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import Notification
-from .serializers import NotificationSerializer
+from .serializers import NotificationSerializer, UnreadCountSerializer
 
 
-class MyNotificationListView(generics.ListAPIView):
+class NotificationListView(generics.ListAPIView):
     """
-    Endpoint GET /api/v1/notifications/me/
-    Toutes les notifications de l'utilisateur connecte, plus recentes en premier.
+    Liste des notifications de l'utilisateur connecté.
+    GET /api/v1/notifications/
     """
+    permission_classes = [IsAuthenticated]
     serializer_class = NotificationSerializer
-    permission_classes = (IsAuthenticated,)
-
+    
     def get_queryset(self):
-        return Notification.objects.filter(user=self.request.user)
+        return Notification.objects.filter(recipient=self.request.user)
 
 
-class MarkNotificationReadView(APIView):
+class UnreadCountView(APIView):
     """
-    Endpoint PATCH /api/v1/notifications/<id>/read/
-    Marque UNE notification precise comme lue -- uniquement la SIENNE.
+    Nombre de notifications non lues.
+    GET /api/v1/notifications/unread-count/
     """
-    permission_classes = (IsAuthenticated,)
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        count = Notification.objects.filter(
+            recipient=request.user,
+            is_read=False
+        ).count()
+        
+        serializer = UnreadCountSerializer({'unread_count': count})
+        return Response(serializer.data)
 
+
+class MarkAsReadView(APIView):
+    """
+    Marquer une notification comme lue.
+    PATCH /api/v1/notifications/{id}/read/
+    """
+    permission_classes = [IsAuthenticated]
+    
     def patch(self, request, pk):
         try:
-            notification = Notification.objects.get(pk=pk, user=request.user)
+            notification = Notification.objects.get(pk=pk, recipient=request.user)
+            notification.mark_as_read()
+            serializer = NotificationSerializer(notification)
+            return Response(serializer.data)
         except Notification.DoesNotExist:
-            return Response({"detail": "Notification introuvable."}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {'detail': 'Notification non trouvée.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
-        notification.is_read = True
-        notification.save()
-        return Response(NotificationSerializer(notification).data)
 
-
-class UnreadNotificationCountView(APIView):
+class MarkAllAsReadView(APIView):
     """
-    Endpoint GET /api/v1/notifications/unread-count/
-    Utile pour afficher un badge "3" sur une icone de cloche, sans
-    devoir recuperer TOUTES les notifications juste pour les compter.
+    Marquer toutes les notifications comme lues.
+    PATCH /api/v1/notifications/read-all/
     """
-    permission_classes = (IsAuthenticated,)
-
-    def get(self, request):
-        count = Notification.objects.filter(user=request.user, is_read=False).count()
-        return Response({"unread_count": count})
+    permission_classes = [IsAuthenticated]
+    
+    def patch(self, request):
+        count = Notification.objects.filter(
+            recipient=request.user,
+            is_read=False
+        ).update(is_read=True, read_at=timezone.now())
+        
+        return Response({
+            'detail': f'{count} notification(s) marquée(s) comme lue(s).'
+        })

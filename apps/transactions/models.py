@@ -15,11 +15,6 @@ class Transaction(models.Model):
     Transaction, elle, journalise l'EVENEMENT METIER complet (un depot,
     un investissement, un remboursement...), avec son contexte (projet lie,
     statut, reference), pas seulement le chiffre du mouvement.
-
-    Distinction importante :
-    - WalletHistory = "le solde de ce wallet a change de +100 le 02/08"
-    - Transaction    = "Jean a investi 100E dans le Projet X, transaction #REF123,
-                        actuellement en statut COMPLETED"
     """
 
     class TransactionType(models.TextChoices):
@@ -36,9 +31,6 @@ class Transaction(models.Model):
         FAILED = 'FAILED', 'Echouee'
         CANCELLED = 'CANCELLED', 'Annulee'
 
-    # Reference unique, lisible et non-devinable (UUID), utilisee pour
-    # la reconciliation comptable et le support client ("j'ai un probleme
-    # avec ma transaction REF-xxxx").
     reference = models.UUIDField(
         default=uuid.uuid4,
         unique=True,
@@ -48,7 +40,7 @@ class Transaction(models.Model):
 
     wallet = models.ForeignKey(
         'wallets.Wallet',
-        on_delete=models.PROTECT,  # Une transaction ne doit JAMAIS disparaitre si le wallet est supprime
+        on_delete=models.PROTECT,
         related_name='transactions',
         verbose_name="Portefeuille"
     )
@@ -59,7 +51,6 @@ class Transaction(models.Model):
         verbose_name="Type de transaction"
     )
 
-    # DecimalField, jamais FloatField -- regle absolue rappelee depuis l'Etape 7.
     amount = models.DecimalField(
         max_digits=14, decimal_places=2,
         validators=[MinValueValidator(Decimal('0.01'))],
@@ -73,8 +64,6 @@ class Transaction(models.Model):
         verbose_name="Statut"
     )
 
-    # Lien optionnel vers un projet -- rempli uniquement pour INVESTMENT/REFUND.
-    # null=True car un DEPOSIT ou WITHDRAWAL ne concerne aucun projet precis.
     project = models.ForeignKey(
         'projects.Project',
         on_delete=models.PROTECT,
@@ -84,8 +73,6 @@ class Transaction(models.Model):
     )
 
     description = models.CharField(max_length=255, blank=True, verbose_name="Description")
-
-    # Raison d'un echec, remplie uniquement si status = FAILED
     failure_reason = models.CharField(max_length=255, blank=True, verbose_name="Raison de l'echec")
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -96,9 +83,6 @@ class Transaction(models.Model):
         verbose_name_plural = "Transactions"
         ordering = ['-created_at']
         indexes = [
-            # Index sur (wallet, created_at) -- acceleration des requetes
-            # "historique des transactions de ce wallet, du plus recent au plus ancien",
-            # tres frequentes (relevé de compte utilisateur).
             models.Index(fields=['wallet', '-created_at']),
         ]
 

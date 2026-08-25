@@ -1,16 +1,18 @@
 ﻿from django.urls import path
 from .views import (
-    MyInvestmentListView,
-    MyInvestmentSummaryView,
-    ProjectInvestmentListView,
     InvestmentListView,
+    InvestmentMeView,
+    InvestmentSummaryView,
+    InvestmentProjectView,
 )
+from apps.repayments.views import CancelInvestmentView
 
 app_name = 'investments'
 
 urlpatterns = [
-    path('me/', MyInvestmentListView.as_view(), name='my_investments'),
-    path('me/summary/', MyInvestmentSummaryView.as_view(), name='my_investments_summary'),
-    path('project/<int:project_id>/', ProjectInvestmentListView.as_view(), name='project_investments'),
-    path('', InvestmentListView.as_view(), name='investment_list'),
+    path('', InvestmentListView.as_view(), name='investment-list'),
+    path('me/', InvestmentMeView.as_view(), name='investment-me'),
+    path('me/summary/', InvestmentSummaryView.as_view(), name='investment-summary'),
+    path('project/<int:project_id>/', InvestmentProjectView.as_view(), name='investment-project'),
+    path('<int:id>/cancel/', CancelInvestmentView.as_view(), name='cancel-investment'),
 ]

@@ -1,274 +1,151 @@
-﻿from decimal import Decimal, ROUND_HALF_UP
-
-from django.conf import settings
-from django.contrib.auth import get_user_model
-from django.db import transaction as db_transaction
-from django.core.exceptions import ValidationError
+﻿from decimal import Decimal
 from django.utils import timezone
+from django.core.exceptions import ValidationError
+from datetime import timedelta
 
-from apps.notifications.tasks import create_notification
-from apps.notifications.models import Notification
-from apps.investments.models import Investment
-from apps.projects.models import Project
 from .models import RepaymentPlan, Repayment
+from apps.investments.models import Investment
+from apps.transactions.models import Transaction
+from apps.wallets.models import Wallet
 
 
 class RepaymentService:
     """
-    Couche service : genere et gere les plans de remboursement.
-
-    Le calcul au prorata est le coeur de cette classe -- voir
-    _split_amount_among_investments() pour la gestion des arrondis.
+    Service de gestion des remboursements.
     """
 
     @staticmethod
-    def _split_amount_among_investments(total_amount: Decimal, investments: list) -> list:
+    def generate_plan(project, interest_rate, number_of_installments, frequency_days=30):
         """
-        Repartit `total_amount` entre plusieurs `investments`, au prorata
-        du montant de chaque investissement, en garantissant que la SOMME
-        des parts est EXACTEMENT egale a total_amount (aucune perte/gain
-        de centime du a l'arrondi).
-
-        Technique : chaque investissement (sauf le DERNIER) recoit sa part
-        arrondie normalement. Le DERNIER investissement recoit le RESTE EXACT
-        (total_amount moins la somme deja distribuee), ce qui absorbe
-        automatiquement toute erreur d'arrondi cumulee.
-
-        Retourne une liste de tuples (investment, part_amount), dans le
-        MEME ordre que `investments` en entree.
+        Générer le plan de remboursement pour un projet.
         """
-        if not investments:
-            return []
-
-        total_invested = sum(inv.amount for inv in investments)
-        if total_invested == 0:
-            raise ValidationError("Le montant total investi ne peut pas etre zero.")
-
-        results = []
-        distributed_so_far = Decimal('0.00')
-
-        for index, investment in enumerate(investments):
-            is_last = (index == len(investments) - 1)
-
-            if is_last:
-                # Le dernier recoit le reste EXACT -- absorbe l'erreur d'arrondi cumulee
-                part = total_amount - distributed_so_far
-            else:
-                # Part au prorata, arrondie au centime le plus proche
-                proportion = investment.amount / total_invested
-                part = (total_amount * proportion).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-
-            results.append((investment, part))
-            distributed_so_far += part
-
-        return results
-
-    @staticmethod
-    @db_transaction.atomic
-    def generate_plan(project: Project, interest_rate: Decimal, number_of_installments: int,
-                       frequency_days: int = 30) -> RepaymentPlan:
-        """
-        Genere le RepaymentPlan ET toutes les echeances (Repayment) individuelles
-        pour CHAQUE investissement actif sur ce projet, au prorata de leur montant.
-
-        Ne peut etre genere qu'UNE FOIS par projet (OneToOneField sur project).
-        """
-        if hasattr(project, 'repayment_plan'):
-            raise ValidationError(
-                f"Un plan de remboursement existe deja pour le projet '{project.title}'."
-            )
-
-        active_investments = list(
-            Investment.objects.filter(project=project, status=Investment.Status.ACTIVE)
+        investments = Investment.objects.filter(
+            project=project,
+            status='ACTIVE'
         )
-        if not active_investments:
-            raise ValidationError(
-                "Impossible de generer un plan de remboursement : aucun investissement actif sur ce projet."
-            )
 
-        total_capital = project.current_amount
-        # Interet simple sur la duree totale : capital * taux_annuel * (duree_totale_en_annees)
-        total_duration_years = Decimal(number_of_installments * frequency_days) / Decimal('365')
-        total_interest = (total_capital * (interest_rate / Decimal('100')) * total_duration_years).quantize(
-            Decimal('0.01'), rounding=ROUND_HALF_UP
-        )
+        if not investments.exists():
+            raise ValidationError("Aucun investissement actif pour ce projet.")
 
         plan = RepaymentPlan.objects.create(
             project=project,
             interest_rate=interest_rate,
             number_of_installments=number_of_installments,
             frequency_days=frequency_days,
-            total_capital=total_capital,
-            total_interest=total_interest,
-            status=RepaymentPlan.Status.ACTIVE,
+            total_capital=Decimal('0.00'),
+            total_interest=Decimal('0.00'),
+            status=RepaymentPlan.Status.DRAFT
         )
 
-        # Montant de CAPITAL et d'INTERETS par echeance (avant repartition entre investisseurs)
-        capital_per_installment = (total_capital / number_of_installments).quantize(
-            Decimal('0.01'), rounding=ROUND_HALF_UP
-        )
-        interest_per_installment = (total_interest / number_of_installments).quantize(
-            Decimal('0.01'), rounding=ROUND_HALF_UP
-        )
+        total_capital = Decimal('0.00')
+        total_interest = Decimal('0.00')
 
-        today = timezone.now().date()
+        for investment in investments:
+            amount = Decimal(str(investment.amount))
 
-        for installment_number in range(1, number_of_installments + 1):
-            due_date = today + timezone.timedelta(days=frequency_days * installment_number)
+            monthly_rate = (interest_rate / 100) / 12
+            installment_amount = amount / number_of_installments
+            interest_total = amount * monthly_rate * number_of_installments
 
-            # Pour la DERNIERE echeance globale, on ajuste pour absorber
-            # l'arrondi cumule sur capital_per_installment/interest_per_installment,
-            # exactement le meme principe que _split_amount_among_investments.
-            is_last_installment = (installment_number == number_of_installments)
-            if is_last_installment:
-                capital_this_installment = total_capital - (capital_per_installment * (number_of_installments - 1))
-                interest_this_installment = total_interest - (interest_per_installment * (number_of_installments - 1))
-            else:
-                capital_this_installment = capital_per_installment
-                interest_this_installment = interest_per_installment
+            total_capital += amount
+            total_interest += interest_total
 
-            # Repartition de CETTE echeance entre tous les investisseurs, au prorata
-            capital_splits = RepaymentService._split_amount_among_investments(
-                capital_this_installment, active_investments
-            )
-            interest_splits = RepaymentService._split_amount_among_investments(
-                interest_this_installment, active_investments
-            )
+            start_date = timezone.now().date()
 
-            # capital_splits et interest_splits sont dans le MEME ordre que active_investments
-            for (investment, capital_part), (_, interest_part) in zip(capital_splits, interest_splits):
+            for i in range(number_of_installments):
+                due_date = start_date + timedelta(days=frequency_days * (i + 1))
+
                 Repayment.objects.create(
                     plan=plan,
                     investment=investment,
-                    installment_number=installment_number,
+                    installment_number=i + 1,
                     due_date=due_date,
-                    capital_amount=capital_part,
-                    interest_amount=interest_part,
-                    status=Repayment.Status.SCHEDULED,
+                    capital_amount=installment_amount,
+                    interest_amount=interest_total / number_of_installments,
+                    status=Repayment.Status.SCHEDULED
                 )
+
+        plan.total_capital = total_capital
+        plan.total_interest = total_interest
+        plan.status = RepaymentPlan.Status.ACTIVE
+        plan.save()
 
         return plan
 
     @staticmethod
-    @db_transaction.atomic
-    def pay_installment(repayment: Repayment) -> Repayment:
+    def pay_repayment(repayment_id):
         """
-        Execute le paiement REEL d'une echeance :
-        1. Debite le wallet de l'ENTREPRISE porteuse du projet
-        2. Credite le CAPITAL a l'investisseur (integral, jamais taxe)
-        3. Credite les INTERETS NETS a l'investisseur, et la COMMISSION
-           a la plateforme (si un compte PLATFORM existe)
-        4. Met a jour Investment.amount_refunded et son statut
-        5. Marque l'echeance comme PAID
-        6. Notifie l'investisseur (apres commit reel de la transaction SQL)
+        Payer une échéance et créditer l'investisseur.
         """
-        from apps.transactions.models import Transaction
-        from apps.wallets.models import Wallet
+        repayment = Repayment.objects.get(id=repayment_id)
 
-        if repayment.status != Repayment.Status.SCHEDULED:
-            raise ValidationError(
-                f"Cette echeance a deja le statut '{repayment.get_status_display()}', "
-                f"impossible de la payer a nouveau."
-            )
+        if repayment.status == Repayment.Status.PAID:
+            raise ValidationError("Cette échéance est déjà payée.")
 
-        investment = repayment.investment
-        investor_wallet = Wallet.objects.select_for_update().get(
-            user=investment.investor_profile.user
+        if repayment.status == Repayment.Status.CANCELLED:
+            raise ValidationError("Cette échéance a été annulée.")
+
+        repayment.mark_as_paid()
+
+        wallet = Wallet.objects.get(user=repayment.investment.investor_profile.user)
+        total_amount = repayment.capital_amount + repayment.interest_amount
+
+        wallet.credit(
+            amount=total_amount,
+            description=f"Remboursement échéance #{repayment.installment_number} - {repayment.investment.project.title}"
         )
-        company_wallet = Wallet.objects.select_for_update().get(
-            user=repayment.plan.project.company.user
-        )
-
-        total_due = repayment.total_amount
-
-        if total_due > company_wallet.available_balance:
-            raise ValidationError(
-                f"Solde de l'entreprise insuffisant pour honorer cette echeance : "
-                f"{company_wallet.available_balance} disponible, {total_due} requis."
-            )
-
-        # 1. Debit du wallet entreprise (mouvement simple, trace dans WalletHistory)
-        company_wallet.debit(
-            total_due,
-            description=f"Remboursement echeance #{repayment.installment_number} - {investment.project.title}"
-        )
-
-        # 2. Remboursement du CAPITAL -- toujours integral, jamais taxe
-        if repayment.capital_amount > 0:
-            refund_txn = Transaction.objects.create(
-                wallet=investor_wallet,
-                project=investment.project,
-                transaction_type=Transaction.TransactionType.REFUND,
-                amount=repayment.capital_amount,
-                status=Transaction.Status.PENDING,
-                description=f"Remboursement capital - echeance #{repayment.installment_number}",
-            )
-            investor_wallet.credit(repayment.capital_amount, description=f"Refund - {refund_txn.reference}")
-            refund_txn.status = Transaction.Status.COMPLETED
-            refund_txn.save()
-
-        # 3. Versement des INTERETS, nets de commission plateforme
-        if repayment.interest_amount > 0:
-            User = get_user_model()
-            platform_user = User.objects.filter(role=User.Role.PLATFORM).first()
-
-            commission_amount = Decimal('0.00')
-            if platform_user is not None:
-                commission_rate = settings.PLATFORM_COMMISSION_RATE / Decimal('100')
-                commission_amount = (repayment.interest_amount * commission_rate).quantize(
-                    Decimal('0.01'), rounding=ROUND_HALF_UP
-                )
-
-            net_interest_for_investor = repayment.interest_amount - commission_amount
-
-            interest_txn = Transaction.objects.create(
-                wallet=investor_wallet,
-                project=investment.project,
-                transaction_type=Transaction.TransactionType.INTEREST,
-                amount=net_interest_for_investor,
-                status=Transaction.Status.PENDING,
-                description=f"Interets nets - echeance #{repayment.installment_number}",
-            )
-            investor_wallet.credit(net_interest_for_investor, description=f"Interest - {interest_txn.reference}")
-            interest_txn.status = Transaction.Status.COMPLETED
-            interest_txn.save()
-
-            if platform_user is not None and commission_amount > 0:
-                platform_wallet = Wallet.objects.select_for_update().get(user=platform_user)
-
-                commission_txn = Transaction.objects.create(
-                    wallet=platform_wallet,
-                    project=investment.project,
-                    transaction_type=Transaction.TransactionType.COMMISSION,
-                    amount=commission_amount,
-                    status=Transaction.Status.PENDING,
-                    description=f"Commission - echeance #{repayment.installment_number} - {investment.project.title}",
-                )
-                platform_wallet.credit(commission_amount, description=f"Commission - {commission_txn.reference}")
-                commission_txn.status = Transaction.Status.COMPLETED
-                commission_txn.save()
-
-        # 4. Mise a jour de la position d'investissement
-        investment.amount_refunded += repayment.capital_amount
-        if investment.amount_refunded >= investment.amount:
-            investment.status = Investment.Status.REFUNDED
-        else:
-            investment.status = Investment.Status.PARTIALLY_REFUNDED
-        investment.save()
-
-        # 5. Marque l'echeance comme payee
-        repayment.status = Repayment.Status.PAID
-        repayment.paid_at = timezone.now()
-        repayment.save()
-
-        # 6. Notification asynchrone, apres validation reelle de la transaction SQL.
-        # on_commit() garantit qu'aucune notification n'est envoyee si ce bloc
-        # atomic() devait finalement etre annule pour une raison quelconque.
-        db_transaction.on_commit(lambda: create_notification.delay(
-            user_id=investment.investor_profile.user.pk,
-            notification_type=Notification.NotificationType.REPAYMENT_PAID,
-            title="Échéance remboursée",
-            message=f"Vous avez reçu {repayment.total_amount} pour votre investissement dans '{investment.project.title}'.",
-        ))
 
         return repayment
+
+    @staticmethod
+    def cancel_investment(investment_id, reason=None):
+        """
+        Annuler un investissement et rembourser l'investisseur.
+        Les fonds retournent dans le wallet de l'investisseur.
+        """
+        try:
+            investment = Investment.objects.get(id=investment_id)
+        except Investment.DoesNotExist:
+            raise ValidationError("Investissement non trouvé.")
+
+        project = investment.project
+
+        # Vérifier que le projet n'a pas encore commencé
+        if project.start_date and project.start_date <= timezone.now().date():
+            raise ValidationError("Le projet a déjà commencé, annulation impossible.")
+
+        if investment.status == 'REFUNDED':
+            raise ValidationError("Cet investissement est déjà remboursé.")
+
+        # Annuler les échéances
+        repayments = Repayment.objects.filter(
+            investment=investment,
+            status__in=[Repayment.Status.SCHEDULED, Repayment.Status.LATE]
+        )
+        repayments.update(status=Repayment.Status.CANCELLED)
+
+        # Récupérer le wallet de l'investisseur
+        wallet = Wallet.objects.get(user=investment.investor_profile.user)
+        amount = Decimal(str(investment.amount))
+
+        # Créditer le wallet (remboursement intégral)
+        wallet.credit(
+            amount=amount,
+            description=f"Annulation investissement - {project.title}"
+        )
+
+        # Mettre à jour le statut de l'investissement
+        investment.status = 'REFUNDED'
+        investment.save()
+
+        # Créer une transaction de remboursement
+        Transaction.objects.create(
+            wallet=wallet,
+            transaction_type='REFUND',
+            amount=amount,
+            status='COMPLETED',
+            project=project,
+            description=f"Annulation investissement - {project.title}"
+        )
+
+        return investment

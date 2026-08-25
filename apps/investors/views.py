@@ -8,6 +8,10 @@ from apps.accounts.permissions import IsAdminOrSuperAdmin
 from .models import InvestorProfile
 from .permissions import IsProfileOwnerOrAdmin
 from .serializers import InvestorProfileSerializer, InvestorProfileAdminUpdateSerializer
+from rest_framework.generics import ListAPIView
+from rest_framework.permissions import IsAdminUser
+from apps.investors.serializers import InvestorProfileSerializer
+
 
 
 class MyInvestorProfileView(generics.RetrieveUpdateAPIView):
@@ -81,3 +85,15 @@ class InvestorProfileVerificationView(APIView):
             InvestorProfileSerializer(profile).data,
             status=status.HTTP_200_OK
         )
+class InvestorProfileListView(ListAPIView):
+    """
+    Vue réservée à l'administration pour lister tous les profils investisseurs.
+    GET /api/v1/investors/profiles/
+    """
+    permission_classes = [IsAdminUser]
+    queryset = InvestorProfile.objects.all()
+    serializer_class = InvestorProfileSerializer
+    
+    def get_queryset(self):
+        # Filtrer pour ne montrer que les profils en attente ou récents
+        return super().get_queryset().order_by('-created_at')    

@@ -1,11 +1,13 @@
 ﻿from decimal import Decimal
+
 from django.db import transaction as db_transaction
 from django.core.exceptions import ValidationError
-from apps.notifications.tasks import create_notification
-from apps.notifications.models import Notification
+
 from apps.wallets.models import Wallet
 from apps.projects.models import Project
 from apps.investments.models import Investment
+from apps.notifications.tasks import create_notification
+from apps.notifications.models import Notification
 from .models import Transaction
 
 
@@ -18,11 +20,18 @@ class TransactionService:
     """
     Couche service : orchestre les operations financieres qui touchent
     PLUSIEURS modeles a la fois (Wallet + Transaction + Investment + Project).
+
+    Chaque methode publique de cette classe est le SEUL point d'entree
+    autorise pour executer un mouvement financier reel sur la plateforme.
     """
 
     @staticmethod
     @db_transaction.atomic
     def deposit(wallet: Wallet, amount: Decimal, description: str = "") -> Transaction:
+        """
+        Depot de fonds sur le wallet (simule -- integration reelle d'un
+        prestataire de paiement hors scope).
+        """
         txn = Transaction.objects.create(
             wallet=wallet,
             transaction_type=Transaction.TransactionType.DEPOSIT,
@@ -41,6 +50,9 @@ class TransactionService:
     @staticmethod
     @db_transaction.atomic
     def withdraw(wallet: Wallet, amount: Decimal, description: str = "") -> Transaction:
+        """
+        Retrait de fonds depuis le wallet vers l'exterieur (simule).
+        """
         locked_wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
 
         if amount > locked_wallet.available_balance:
@@ -67,11 +79,13 @@ class TransactionService:
     @db_transaction.atomic
     def invest(wallet: Wallet, project: Project, amount: Decimal) -> Transaction:
         """
-        Un investisseur investit dans un projet. Cree ATOMIQUEMENT :
-        - le debit du wallet
-        - le credit du projet (current_amount)
-        - la Transaction (preuve financiere)
-        - l'Investment (position durable, liee a la transaction)
+        Un investisseur investit dans un projet :
+        1. Verifie que le projet accepte des investissements
+        2. Debite le wallet de l'investisseur
+        3. Credite current_amount du projet
+        4. Trace la transaction, liee au projet
+        5. Cree l'Investment correspondant (position durable)
+        6. Notifie l'entreprise porteuse (apres commit reel)
         """
         investor_profile = getattr(wallet.user, 'investor_profile', None)
         if investor_profile is None:
@@ -124,13 +138,13 @@ class TransactionService:
 
         txn.status = Transaction.Status.COMPLETED
         txn.save()
-        # Notifie l'ENTREPRISE porteuse qu'elle a reçu un nouvel investissement.
-        # on_commit() garantit que la notification n'est envoyée QUE si toute
-        # la transaction financière (debit/credit/Investment) a bien été validée.
+
+        # Notifie l'ENTREPRISE porteuse, apres validation reelle de la transaction.
         db_transaction.on_commit(lambda: create_notification.delay(
             user_id=project.company.user.pk,
             notification_type=Notification.NotificationType.INVESTMENT_RECEIVED,
             title="Nouvel investissement reçu",
             message=f"Vous avez reçu un investissement de {amount} sur le projet '{project.title}'.",
         ))
+
         return txn

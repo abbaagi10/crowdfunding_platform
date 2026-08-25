@@ -7,9 +7,6 @@ from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 
-# get_user_model() retourne le CustomUser configuré dans AUTH_USER_MODEL
-# C'est la manière RECOMMANDÉE d'accéder au modèle User dans du code réutilisable
-# (plutôt que d'importer CustomUser directement, ce qui casserait si on changeait encore de modèle)
 User = get_user_model()
 
 
@@ -19,11 +16,10 @@ class RegisterSerializer(serializers.ModelSerializer):
     Gère la validation du mot de passe et la confirmation.
     """
 
-    # write_only=True : ce champ est accepté en entrée (POST) mais jamais renvoyé en sortie (sécurité)
     password = serializers.CharField(
         write_only=True,
         required=True,
-        validators=[validate_password]  # Applique les AUTH_PASSWORD_VALIDATORS de Django
+        validators=[validate_password]
     )
     password2 = serializers.CharField(write_only=True, required=True, label="Confirmation du mot de passe")
 
@@ -32,22 +28,12 @@ class RegisterSerializer(serializers.ModelSerializer):
         fields = ('email', 'password', 'password2', 'first_name', 'last_name', 'role')
 
     def validate(self, attrs):
-        """
-        Validation au niveau de l'objet entier (pas d'un seul champ).
-        Ici on vérifie que les deux mots de passe saisis correspondent.
-        """
         if attrs['password'] != attrs['password2']:
             raise serializers.ValidationError({"password": "Les deux mots de passe ne correspondent pas."})
         return attrs
 
     def create(self, validated_data):
-        """
-        Surcharge de la création : on utilise notre manager personnalisé
-        pour garantir que le mot de passe est bien hashé (jamais stocké en clair).
-        """
-        # On retire password2, il ne fait pas partie du modèle CustomUser
         validated_data.pop('password2')
-
         user = User.objects.create_user(
             email=validated_data['email'],
             password=validated_data['password'],
@@ -56,13 +42,8 @@ class RegisterSerializer(serializers.ModelSerializer):
             role=validated_data.get('role', User.Role.INVESTISSEUR),
         )
         return user
+
     def validate_role(self, value):
-        """
-        SÉCURITÉ : un utilisateur public ne doit JAMAIS pouvoir s'inscrire
-        avec un rôle privilégié (SUPERADMIN, USERADMIN) ni le rôle système
-        PLATFORM. Seuls INVESTISSEUR et ENTREPRISE sont autorisés à
-        l'inscription publique.
-        """
         allowed_public_roles = (User.Role.INVESTISSEUR, User.Role.ENTREPRISE)
         if value not in allowed_public_roles:
             raise serializers.ValidationError(
@@ -74,17 +55,13 @@ class RegisterSerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     """
     Serializer utilisé pour AFFICHER les informations d'un utilisateur.
-    Ne contient jamais le mot de passe (jamais dans 'fields').
+    ✅ Inclut is_active pour l'administration.
     """
 
     class Meta:
         model = User
-        fields = ('id', 'email', 'first_name', 'last_name', 'role', 'is_email_verified', 'created_at')
+        fields = ('id', 'email', 'first_name', 'last_name', 'role', 'is_email_verified', 'is_active', 'created_at')
         read_only_fields = ('id', 'created_at')
-
-
-from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from rest_framework_simplejwt.exceptions import AuthenticationFailed
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -95,35 +72,25 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     """
 
     def validate(self, attrs):
-        # La méthode parente vérifie déjà email + mot de passe,
-        # et lève une erreur 401 automatiquement si invalides
         data = super().validate(attrs)
 
-        # self.user est défini par la classe parente après validation réussie des identifiants
         if not self.user.is_email_verified:
             raise AuthenticationFailed(
                 "Veuillez activer votre compte via le lien envoyé par email avant de vous connecter.",
                 code="email_not_verified"
             )
 
-        return data        
+        return data
 
 
-# Instance réutilisable du générateur de token natif de Django pour le reset de mot de passe
 password_reset_token = PasswordResetTokenGenerator()
 
+
 class PasswordResetRequestSerializer(serializers.Serializer):
-    """
-    Valide simplement la présence d'un email dans la requête.
-    Ne vérifie PAS si l'email existe (fait exprès, pour la sécurité).
-    """
     email = serializers.EmailField()
 
 
 class PasswordResetConfirmSerializer(serializers.Serializer):
-    """
-    Valide le uid, le token et le nouveau mot de passe lors de la confirmation.
-    """
     uid = serializers.CharField()
     token = serializers.CharField()
     new_password = serializers.CharField(write_only=True, validators=[validate_password])
@@ -142,7 +109,5 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
         if not password_reset_token.check_token(user, attrs['token']):
             raise serializers.ValidationError({"token": "Lien de réinitialisation invalide ou expiré."})
 
-        # On stocke l'utilisateur trouvé pour l'utiliser directement dans la vue,
-        # évite de re-décoder le uid une deuxième fois
         attrs['user'] = user
-        return attrs    
+        return attrs
