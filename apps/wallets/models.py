@@ -1,4 +1,5 @@
-﻿from decimal import Decimal
+﻿# apps/wallets/models.py
+from decimal import Decimal
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -29,8 +30,6 @@ class Wallet(models.Model):
         verbose_name="Utilisateur"
     )
 
-    # DecimalField OBLIGATOIRE pour tout montant d'argent -- JAMAIS FloatField.
-    # Voir la section 3 (pourquoi DecimalField) pour la justification complète.
     balance = models.DecimalField(
         max_digits=14, decimal_places=2,
         default=Decimal('0.00'),
@@ -92,7 +91,7 @@ class Wallet(models.Model):
             raise ValidationError("Le montant à créditer doit être positif.")
 
         self.balance += amount
-        self.full_clean()  # Vérifie les contraintes AVANT de sauvegarder
+        self.full_clean()
         self.save()
 
         WalletHistory.objects.create(
@@ -212,8 +211,6 @@ class WalletHistory(models.Model):
         verbose_name="Montant du mouvement"
     )
 
-    # Solde total APRÈS ce mouvement -- permet de vérifier la cohérence
-    # de l'historique a posteriori (chaque ligne doit s'enchaîner logiquement).
     balance_after = models.DecimalField(
         max_digits=14, decimal_places=2,
         verbose_name="Solde après mouvement"
